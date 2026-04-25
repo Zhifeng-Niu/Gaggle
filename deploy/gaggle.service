@@ -1,0 +1,32 @@
+[Unit]
+Description=Gaggle A2A Commercial Platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/gaggle
+ExecStart=/opt/gaggle/gaggle
+Restart=always
+RestartSec=5
+
+# 环境变量
+EnvironmentFile=/opt/gaggle/.env
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/gaggle
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gaggle
+
+# 资源限制
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target

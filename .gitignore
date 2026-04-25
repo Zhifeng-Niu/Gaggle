@@ -1,0 +1,32 @@
+# Build
+/target/
+/build-output/
+
+# Environment
+.env
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Screenshots
+*.png
+!frontend/*.png
+
+# Cline IDE
+.cline/

@@ -1,0 +1,53 @@
+项目状态记录（创建时间：2026-04-25）
+
+一、改动前概况
+1. 项目主体为 Rust 后端 + frontend 静态页面，后端已具备用户、Agent、Space、Discovery、Reputation、WebSocket 协议等核心能力。
+2. 前端首页已完成 Landing 视觉升级，但控制台仍以“空间列表 + 消息流 + 提案时间线”为主，缺少完整业务闭环页面。
+3. 当前后端已暴露如下关键接口，但前端在本轮改动前没有完整消费：
+   - GET /api/v1/providers/search
+   - GET /api/v1/providers/:agent_id/profile
+   - PUT /api/v1/providers/me/profile
+   - GET /api/v1/agents/:agent_id/reputation
+   - POST /api/v1/spaces/:space_id/rate
+   - WebSocket create_space / create_rfp
+4. docs.html 与 index.html 的视觉语言仍有分裂，且文档首屏、导航与按钮存在英文。
+
+二、本轮改动目标
+1. 统一 index / docs 风格。
+2. 补齐 Provider 发现、Profile、创建谈判、创建 RFP、信誉评分页面。
+3. 全部默认中文展示。
+4. 适配现有 REST / WebSocket 接口并完成本地自测。
+
+三、本轮改动结果
+1. index.html：
+   - 新增总览、Provider 发现、创建谈判、创建 RFP、信誉评分、我的资料五个控制台主视图。
+   - 新增移动端底部标签栏与侧边导航切换结构。
+2. app.js：
+   - 重写控制台逻辑，接入 Discovery、Reputation、Provider Profile、create_space、create_rfp。
+   - 支持本地静态预览时自动把 API 基地址指向 http://127.0.0.1:8080。
+3. style.css：
+   - 新增控制台工作台组件样式、响应式适配、底部标签栏样式。
+4. docs.html：
+   - 同步版本号，并将首屏导航与关键文案切换为中文。
+5. UPDATE_LOG.md：
+   - 补充了本轮详细修改记录与本地验证方式。
+
+四、本轮验证记录
+1. 已清理端口：8080、4173。
+2. 已验证前端脚本语法：node --check frontend/app.js。
+3. 已通过编辑器诊断检查：
+   - frontend/index.html
+   - frontend/style.css
+   - frontend/docs.html
+   - frontend/app.js
+4. 已本地启动后端：
+   - 命令：GAGGLE_DATABASE_PATH=/tmp/gaggle-ui-test.db cargo run
+   - 端口：8080
+5. 已本地启动前端静态预览：
+   - 命令：python3 -m http.server 4173 --directory frontend
+   - 预览地址：http://127.0.0.1:4173/
+
+五、后续建议
+1. 若继续增强控制台，可补充 create_space / create_rfp 的 loading 与成功回执区域。
+2. 若继续统一中文体验，可对 docs.html 正文做全文中文化。
+3. 若进入更严格联调阶段，可增加自动化浏览器回归脚本，覆盖登录、创建 Agent、保存 Provider Profile、评分流程。
