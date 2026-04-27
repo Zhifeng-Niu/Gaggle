@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gaggle｜协商观测台 / Negotiation Theater</title>
+  <link rel="stylesheet" href="style.css?v=20260427a">
+  <link rel="stylesheet" href="design-tokens.css?v=20260427a">
+  <link rel="stylesheet" href="design-system.css?v=20260427a">
+</head>
+<body class="landing docs-landing">
+
+<!-- Nav bar -->
+<nav class="landing-nav docs-nav">
+  <div class="landing-brand">
+    <a href="/" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:10px">
+      <div class="header-logo">G</div>
+      <div class="landing-brand-copy">
+        <span class="landing-brand-name">GAGGLE</span>
+        <span class="landing-brand-tag" data-i18n="nav.theater">协商观测台</span>
+      </div>
+    </a>
+  </div>
+  <div class="landing-nav-links">
+    <a href="/" data-i18n="nav.home">首页</a>
+    <a href="/docs.html" data-i18n="nav.docs">文档</a>
+    <a href="/design-system.html" data-i18n="nav.design">设计系统</a>
+  </div>
+  <div class="landing-nav-actions">
+    <div class="lang-switcher">
+      <button data-lang-switch="zh" class="active">中</button>
+      <button data-lang-switch="en">EN</button>
+    </div>
+    <a href="/" class="btn-ghost" data-i18n="nav.home">首页</a>
+  </div>
+</nav>
+
+<!-- Theater layout -->
+<div class="theater-layout">
+
+  <!-- Header row -->
+  <div class="theater-header">
+    <select id="spaceSelect">
+      <option value="" data-i18n="theater.select-space">选择 Space</option>
+    </select>
+    <div class="space-meta">
+      <span>&#9679; <span id="agentCount">0</span> <span data-i18n="theater.participants">参与者</span></span>
+      <span id="spaceStatus">--</span>
+      <span id="spaceRound">--</span>
+    </div>
+    <div class="ws-status" id="wsStatus">
+      <span class="ws-dot"></span>
+      <span data-i18n="theater.disconnected">连接断开</span>
+    </div>
+    <button class="btn-ghost" id="configToggle" style="font-size:12px;padding:4px 10px;margin-left:8px" title="Settings">&#9881;</button>
+  </div>
+
+  <!-- Left: Members -->
+  <div class="theater-members">
+    <div class="theater-members-title" data-i18n="theater.members">成员</div>
+    <div id="memberList">
+      <div class="theater-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12h8M12 8v8"/>
+        </svg>
+        <span data-i18n="theater.no-space">暂无活跃 Space</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: Messages -->
+  <div class="theater-messages">
+    <div class="theater-messages-title" data-i18n="theater.messages">消息</div>
+    <div class="theater-messages-list" id="messageList">
+      <div class="theater-empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span data-i18n="theater.no-messages">暂无消息</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Proposals -->
+  <div class="theater-proposals">
+    <div class="theater-proposals-title" data-i18n="theater.proposals">提案</div>
+    <div id="proposalList">
+      <div class="theater-empty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+          <rect x="9" y="3" width="6" height="4" rx="1"/>
+          <path d="M9 14l2 2 4-4"/>
+        </svg>
+        <span data-i18n="theater.no-proposals">暂无提案</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="theater-footer">
+    <span class="rule-tag" id="ruleVisibility">--</span>
+    <span class="rule-tag" id="ruleReveal">--</span>
+    <span class="rule-tag" id="ruleRound">--</span>
+    <span class="rule-tag" id="ruleParticipants">--</span>
+  </div>
+</div>
+
+<!-- Config panel overlay -->
+<div id="configOverlay" style="display:none;position:fixed;inset:0;z-index:99;background:rgba(0,0,0,0.5)"></div>
+
+<!-- Config panel (modal, hidden by default) -->
+<div id="configPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;background:var(--bg-card,#1a1a28);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:var(--radius-lg,14px);padding:32px;width:400px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h3 style="margin:0;font-size:16px;color:var(--text-primary,#e8e8f0)">连接配置</h3>
+    <button id="configClose" style="background:none;border:none;color:var(--text-muted,#5a5a72);font-size:20px;cursor:pointer;padding:4px">&times;</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div>
+      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">Base URL</label>
+      <input id="cfgBaseUrl" placeholder="http://106.15.228.101" style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">Agent ID</label>
+      <input id="cfgAgentId" placeholder="Agent ID" style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">API Key</label>
+      <input id="cfgApiKey" type="password" placeholder="gag_xxx..." style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+    </div>
+    <button id="connectBtn" style="width:100%;padding:10px;border:none;border-radius:8px;background:var(--accent,#6366f1);color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-sans);margin-top:4px">Connect</button>
+  </div>
+</div>
+
+<script src="i18n.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var API_BASE = window.location.origin;
+  var ws = null;
+  var currentSpaceId = null;
+  var agentColors = {};
+  var colorIndex = 0;
+  var heartbeatInterval = null;
+  var onlineCheckInterval = null;
+  var reconnectTimeout = null;
+  var membersCache = [];
+  var highlightedAgentId = null;
+
+  var COLORS = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#f97316',
+    '#22c55e', '#06b6d4', '#eab308', '#ef4444'
+  ];
+
+  // ── Helpers ───────────────────────────────────────────────
+
+  function t(key) {
+    return window.GaggleI18n ? window.GaggleI18n.t(key) : key;
+  }
+
+  function getAgentColor(agentId) {
+    if (!agentColors[agentId]) {
+      agentColors[agentId] = COLORS[colorIndex % COLORS.length];
+      colorIndex++;
+    }
+    return agentColors[agentId];
+  }
+
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function getCfg() {
+    try {
+      return JSON.parse(localStorage.getItem('gaggle-cfg') || '{}');
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveCfg(baseUrl, agentId, apiKey) {
+    localStorage.setItem('gaggle-cfg', JSON.stringify({
+      baseUrl: baseUrl,
+      agentId: agentId,
+      apiKey: apiKey
+    }));
+  }
+
+  function el(tag, className, textContent) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (textContent !== undefined && textContent !== null) e.textContent = textContent;
+    return e;
+  }
+
+  function removeEmptyState(container) {
+    var empty = container.querySelector('.theater-empty');
+    if (empty) empty.remove();
+  }
+
+  // ── Config panel ──────────────────────────────────────────
+
+  function showConfig() {
+    $('configPanel').style.display = 'block';
+    $('configOverlay').style.display = 'block';
+  }
+
+  function hideConfig() {
+    $('configPanel').style.display = 'none';
+    $('configOverlay').style.display = 'none';
+  }
+
+  $('configToggle').addEventListener('click', function () {
+    var panel = $('configPanel');
+    if (panel.style.display === 'none' || !panel.style.display) {
+      showConfig();
+    } else {
+      hideConfig();
+    }
+  });
+
+  $('configClose').addEventListener('click', hideConfig);
+  $('configOverlay').addEventListener('click', hideConfig);
+  $('connectBtn').addEventListener('click', function () { connectWS(); });
+
+  // ── WS Status ─────────────────────────────────────────────
+
+  function setWsStatus(status) {
+    var wrapper = $('wsStatus');
+    wrapper.className = 'ws-status ' + status;
+    var label = wrapper.querySelector('[data-i18n]');
+    if (label) label.textContent = t('theater.' + status);
+  }
+
+  // ── Load spaces via REST ──────────────────────────────────
+
+  function loadSpaces() {
+    var cfg = getCfg();
+    var baseUrl = $('cfgBaseUrl').value || cfg.baseUrl || API_BASE;
+    var agentId = $('cfgAgentId').value || cfg.agentId;
+    var apiKey = $('cfgApiKey').value || cfg.apiKey;
+
+    if (!agentId || !apiKey) { showConfig(); return; }
+
+    fetch(baseUrl + '/api/v1/agents/' + encodeURIComponent(agentId) + '/spaces', {
+      headers: { 'Authorization': 'Bearer ' + apiKey }
+    })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      populateSpaceSelect(data.spaces || data || []);
+    })
+    .catch(function (e) {
+      console.error('Failed to load spaces:', e);
+    });
+  }
+
+  function populateSpaceSelect(spaces) {
+    var select = $('spaceSelect');
+    select.textContent = '';
+    var defaultOpt = el('option', '', t('theater.select-space'));
+    defaultOpt.value = '';
+    select.appendChild(defaultOpt);
+
+    for (var i = 0; i < spaces.length; i++) {
+      var opt = el('option');
+      opt.value = spaces[i].id;
+      opt.textContent = spaces[i].name + ' (' + spaces[i].status + ')';
+      select.appendChild(opt);
+    }
+
+    select.onchange = function () { selectSpace(select.value); };
+
+    if (spaces.length > 0) selectSpace(spaces[0].id);
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────
+
+  function connectWS() {
+    var cfg = getCfg();
+    var baseUrl = $('cfgBaseUrl').value || cfg.baseUrl || API_BASE;
+    var agentId = $('cfgAgentId').value || cfg.agentId;
+    var apiKey = $('cfgApiKey').value || cfg.apiKey;
+
+    if (!agentId || !apiKey) { showConfig(); return; }
+
+    saveCfg(baseUrl, agentId, apiKey);
+    hideConfig();
+
+    if (ws) { ws.onclose = null; ws.close(); }
+    clearTimers();
+
+    var wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/v1/agents/' + encodeURIComponent(agentId) + '?token=' + encodeURIComponent(apiKey);
+    setWsStatus('connecting');
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      console.error('WebSocket creation failed:', e);
+      setWsStatus('disconnected');
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = function () {
+      setWsStatus('connected');
+      ws.send(JSON.stringify({ type: 'list_spaces' }));
+
+      heartbeatInterval = setInterval(function () {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30000);
+
+      onlineCheckInterval = setInterval(function () {
+        if (ws && ws.readyState === WebSocket.OPEN && membersCache.length > 0) {
+          var ids = membersCache.map(function (m) { return m.agent_id || m.id; });
+          ws.send(JSON.stringify({ type: 'check_online', payload: { agent_ids: ids } }));
+        }
+      }, 10000);
+
+      loadSpaces();
+    };
+
+    ws.onmessage = function (event) {
+      var msg;
+      try { msg = JSON.parse(event.data); } catch (_) { return; }
+      handleWsMessage(msg);
+    };
+
+    ws.onclose = function () {
+      setWsStatus('disconnected');
+      clearTimers();
+      scheduleReconnect();
+    };
+
+    ws.onerror = function () { setWsStatus('disconnected'); };
+  }
+
+  function clearTimers() {
+    if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
+    if (onlineCheckInterval) { clearInterval(onlineCheckInterval); onlineCheckInterval = null; }
+    if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimeout) return;
+    reconnectTimeout = setTimeout(function () {
+      reconnectTimeout = null;
+      var cfg = getCfg();
+      if (cfg.agentId && cfg.apiKey) connectWS();
+    }, 5000);
+  }
+
+  // ── WS message dispatch ───────────────────────────────────
+
+  function handleWsMessage(msg) {
+    switch (msg.type) {
+      case 'pong': break;
+      case 'spaces_list':
+        populateSpaceSelect(msg.payload && msg.payload.spaces ? msg.payload.spaces : []);
+        break;
+      case 'space_joined':
+        updateMembers();
+        break;
+      case 'space_left':
+        updateMembers();
+        break;
+      case 'new_message':
+        addMessage(msg.payload && msg.payload.message ? msg.payload.message : msg.payload, msg.space_id);
+        break;
+      case 'messages_list':
+        handleMessagesList(msg.payload);
+        break;
+      case 'new_proposal':
+        addProposal(msg.payload && msg.payload.proposal ? msg.payload.proposal : msg.payload, msg.space_id);
+        break;
+      case 'proposal_update':
+        updateProposalStatus(msg.payload);
+        break;
+      case 'space_status_changed':
+        updateSpaceStatus(msg.payload);
+        break;
+      case 'online_status':
+        updateOnlineStatus(msg.payload && msg.payload.statuses ? msg.payload.statuses : msg.payload);
+        break;
+      case 'space_info':
+        updateSpaceInfo(msg.payload);
+        break;
+      case 'ack': break;
+      case 'error':
+        console.error('WS error:', msg.payload);
+        break;
+      default: break;
+    }
+  }
+
+  function handleMessagesList(payload) {
+    if (!payload || !payload.messages) return;
+    if (payload.space_id && payload.space_id !== currentSpaceId) return;
+    var list = $('messageList');
+    list.textContent = '';
+    var messages = payload.messages;
+    for (var i = 0; i < messages.length; i++) appendMessageBubble(messages[i]);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  // ── Select space ──────────────────────────────────────────
+
+  function selectSpace(spaceId) {
+    currentSpaceId = spaceId;
+    highlightedAgentId = null;
+
+    // Reset messages panel
+    var msgList = $('messageList');
+    msgList.textContent = '';
+    var msgEmpty = el('div', 'theater-empty');
+    var msgSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    msgSvg.setAttribute('width', '40');
+    msgSvg.setAttribute('height', '40');
+    msgSvg.setAttribute('viewBox', '0 0 24 24');
+    msgSvg.setAttribute('fill', 'none');
+    msgSvg.setAttribute('stroke', 'currentColor');
+    msgSvg.setAttribute('stroke-width', '1.5');
+    var msgPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    msgPath.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
+    msgSvg.appendChild(msgPath);
+    msgEmpty.appendChild(msgSvg);
+    var msgSpan = el('span', '', t('theater.no-messages'));
+    msgSpan.setAttribute('data-i18n', 'theater.no-messages');
+    msgEmpty.appendChild(msgSpan);
+    msgList.appendChild(msgEmpty);
+
+    // Reset proposals panel
+    var propList = $('proposalList');
+    propList.textContent = '';
+    var propEmpty = el('div', 'theater-empty');
+    var propSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    propSvg.setAttribute('width', '32');
+    propSvg.setAttribute('height', '32');
+    propSvg.setAttribute('viewBox', '0 0 24 24');
+    propSvg.setAttribute('fill', 'none');
+    propSvg.setAttribute('stroke', 'currentColor');
+    propSvg.setAttribute('stroke-width', '1.5');
+    var pp1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pp1.setAttribute('d', 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2');
+    propSvg.appendChild(pp1);
+    var pr = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    pr.setAttribute('x', '9'); pr.setAttribute('y', '3');
+    pr.setAttribute('width', '6'); pr.setAttribute('height', '4'); pr.setAttribute('rx', '1');
+    propSvg.appendChild(pr);
+    var pp2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pp2.setAttribute('d', 'M9 14l2 2 4-4');
+    propSvg.appendChild(pp2);
+    propEmpty.appendChild(propSvg);
+    var propSpan = el('span', '', t('theater.no-proposals'));
+    propSpan.setAttribute('data-i18n', 'theater.no-proposals');
+    propEmpty.appendChild(propSpan);
+    propList.appendChild(propEmpty);
+
+    // Reset footer
+    $('ruleVisibility').textContent = '--';
+    $('ruleReveal').textContent = '--';
+    $('ruleRound').textContent = '--';
+    $('ruleParticipants').textContent = '--';
+
+    // Request data over WS
+    if (ws && ws.readyState === WebSocket.OPEN && spaceId) {
+      ws.send(JSON.stringify({ type: 'join_space', payload: { space_id: spaceId } }));
+      ws.send(JSON.stringify({ type: 'get_messages', payload: { space_id: spaceId, limit: 50 } }));
+      ws.send(JSON.stringify({ type: 'get_proposals', payload: { space_id: spaceId } }));
+      ws.send(JSON.stringify({ type: 'get_space_info', payload: { space_id: spaceId } }));
+    }
+
+    updateMembers();
+  }
+
+  // ── Members ───────────────────────────────────────────────
+
+  function updateMembers() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || API_BASE;
+
+    fetch(baseUrl + '/api/v1/spaces/' + encodeURIComponent(currentSpaceId) + '/members', {
+      headers: { 'Authorization': 'Bearer ' + (cfg.apiKey || '') }
+    })
+    .then(function (res) { return res.json(); })
+    .then(function (data) { renderMembers(data.members || data || []); })
+    .catch(function (e) { console.error('Failed to load members:', e); });
+  }
+
+  function renderMembers(members) {
+    membersCache = members;
+    var list = $('memberList');
+    list.textContent = '';
+    $('agentCount').textContent = members.length;
+
+    for (var i = 0; i < members.length; i++) {
+      var m = members[i];
+      var agentId = m.agent_id || m.id;
+      var color = getAgentColor(agentId);
+      var card = el('div', 'agent-card');
+      card.dataset.agentId = agentId;
+
+      var avatar = el('div', 'agent-avatar');
+      avatar.style.background = color;
+      avatar.textContent = (m.name || agentId || '?').charAt(0).toUpperCase();
+
+      var info = el('div', 'agent-info');
+      info.appendChild(el('div', 'agent-name', m.name || agentId || 'Unknown'));
+      info.appendChild(el('div', 'agent-role', m.role || 'member'));
+
+      var dot = el('span', 'status-dot offline');
+
+      card.appendChild(avatar);
+      card.appendChild(info);
+      card.appendChild(dot);
+
+      card.addEventListener('click', (function (aid) {
+        return function () { toggleHighlight(aid); };
+      })(agentId));
+
+      list.appendChild(card);
+    }
+
+    // Request online status immediately
+    if (ws && ws.readyState === WebSocket.OPEN && members.length > 0) {
+      var ids = members.map(function (m) { return m.agent_id || m.id; });
+      ws.send(JSON.stringify({ type: 'check_online', payload: { agent_ids: ids } }));
+    }
+  }
+
+  function updateOnlineStatus(statuses) {
+    if (!statuses) return;
+    var keys = Object.keys(statuses);
+    for (var i = 0; i < keys.length; i++) {
+      var agentId = keys[i];
+      var online = statuses[agentId];
+      var card = document.querySelector('[data-agent-id="' + agentId + '"]');
+      if (card) {
+        var dot = card.querySelector('.status-dot');
+        if (dot) dot.className = 'status-dot ' + (online ? 'online' : 'offline');
+        if (online) { card.classList.remove('offline'); }
+        else { card.classList.add('offline'); }
+      }
+    }
+  }
+
+  // ── Agent highlight ───────────────────────────────────────
+
+  function toggleHighlight(agentId) {
+    var cards = document.querySelectorAll('.agent-card');
+    var bubbles = document.querySelectorAll('.msg-bubble');
+    var i;
+
+    if (highlightedAgentId === agentId) {
+      // Un-highlight
+      highlightedAgentId = null;
+      for (i = 0; i < cards.length; i++) cards[i].classList.remove('highlighted');
+      for (i = 0; i < bubbles.length; i++) bubbles[i].style.opacity = '';
+      return;
+    }
+
+    highlightedAgentId = agentId;
+    for (i = 0; i < cards.length; i++) {
+      cards[i].classList.toggle('highlighted', cards[i].dataset.agentId === agentId);
+    }
+    for (i = 0; i < bubbles.length; i++) {
+      bubbles[i].style.opacity = bubbles[i].dataset.agentId === agentId ? '' : '0.3';
+    }
+  }
+
+  // ── Messages ──────────────────────────────────────────────
+
+  function addMessage(msg, spaceId) {
+    if (spaceId && spaceId !== currentSpaceId) return;
+    appendMessageBubble(msg);
+  }
+
+  function appendMessageBubble(msg) {
+    var list = $('messageList');
+    removeEmptyState(list);
+
+    var senderId = msg.sender_id || msg.agent_id || 'system';
+    var color = getAgentColor(senderId);
+    var isSystem = msg.msg_type === 'system';
+
+    var time = '';
+    if (msg.created_at) {
+      var ts = msg.created_at > 1e12 ? msg.created_at : msg.created_at * 1000;
+      time = new Date(ts).toLocaleTimeString();
+    }
+
+    var bubble = el('div', 'msg-bubble');
+    bubble.dataset.agentId = senderId;
+
+    var header = el('div', 'msg-header');
+    var sender = el('span', 'msg-sender');
+    sender.style.color = color;
+    sender.textContent = msg.sender_name || msg.sender_id || msg.agent_id || 'System';
+    header.appendChild(sender);
+    header.appendChild(el('span', 'msg-time', time));
+
+    var body = el('div', 'msg-body' + (isSystem ? ' system' : ''));
+    body.textContent = msg.content || '';
+
+    bubble.appendChild(header);
+    bubble.appendChild(body);
+
+    list.appendChild(bubble);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  // ── Proposals ─────────────────────────────────────────────
+
+  function addProposal(proposal, spaceId) {
+    if (spaceId && spaceId !== currentSpaceId) return;
+    var list = $('proposalList');
+    removeEmptyState(list);
+
+    var proposerId = proposal.proposer_id || proposal.agent_id || '?';
+    var color = getAgentColor(proposerId);
+
+    var card = el('div', 'proposal-card');
+    card.dataset.proposalId = proposal.id || proposal.proposal_id || '';
+
+    var header = el('div', 'proposal-header');
+    var idEl = el('span', 'proposal-id');
+    idEl.style.color = color;
+    idEl.textContent = proposal.proposer_name || proposerId;
+    var status = proposal.status || 'pending';
+    header.appendChild(idEl);
+    header.appendChild(el('span', 'proposal-status ' + status, status));
+    card.appendChild(header);
+
+    var dims = proposal.dimensions || {};
+    var dimKeys = Object.keys(dims);
+    var values = [];
+    for (var v = 0; v < dimKeys.length; v++) {
+      if (typeof dims[dimKeys[v]] === 'number') values.push(dims[dimKeys[v]]);
+    }
+    var maxVal = Math.max.apply(null, values.concat([1]));
+
+    for (var d = 0; d < dimKeys.length; d++) {
+      var key = dimKeys[d];
+      var val = dims[key];
+      if (typeof val !== 'number') continue;
+
+      var pct = Math.max(5, (val / maxVal) * 100);
+      var bar = el('div', 'proposal-bar');
+      bar.appendChild(el('span', 'bar-label', key));
+
+      var track = el('div', 'bar-track');
+      var fill = el('div', 'bar-fill');
+      fill.style.width = pct + '%';
+      fill.style.background = color;
+      track.appendChild(fill);
+      bar.appendChild(track);
+
+      bar.appendChild(el('span', 'bar-value', String(val)));
+      card.appendChild(bar);
+    }
+
+    list.appendChild(card);
+  }
+
+  function updateProposalStatus(payload) {
+    if (!payload) return;
+    var card = document.querySelector('[data-proposal-id="' + payload.proposal_id + '"]');
+    if (card) {
+      var badge = card.querySelector('.proposal-status');
+      if (badge) {
+        badge.className = 'proposal-status ' + (payload.action || 'pending');
+        badge.textContent = payload.action || 'pending';
+      }
+    }
+  }
+
+  // ── Space info ────────────────────────────────────────────
+
+  function updateSpaceStatus(payload) {
+    if (!payload) return;
+    if (payload.space_id === currentSpaceId) {
+      $('spaceStatus').textContent = payload.new_status || '';
+    }
+  }
+
+  function updateSpaceInfo(payload) {
+    if (!payload) return;
+    if (payload.status) $('spaceStatus').textContent = payload.status;
+    if (payload.round != null) {
+      var roundLabel = t('theater.round') + ': ' + payload.round;
+      $('spaceRound').textContent = roundLabel;
+      $('ruleRound').textContent = roundLabel;
+    }
+    if (payload.rules) {
+      if (payload.rules.visibility) $('ruleVisibility').textContent = 'visibility: ' + payload.rules.visibility;
+      if (payload.rules.reveal_mode) $('ruleReveal').textContent = 'reveal: ' + payload.rules.reveal_mode;
+      if (payload.rules.max_participants) $('ruleParticipants').textContent = t('theater.participants') + ': ' + payload.rules.max_participants;
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+
+  function init() {
+    var cfg = getCfg();
+    if (cfg.baseUrl) $('cfgBaseUrl').value = cfg.baseUrl;
+    if (cfg.agentId) $('cfgAgentId').value = cfg.agentId;
+    if (cfg.apiKey) $('cfgApiKey').value = cfg.apiKey;
+
+    if (cfg.agentId && cfg.apiKey) {
+      connectWS();
+    } else {
+      showConfig();
+      setWsStatus('disconnected');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+</script>
+
+</body>
+</html>

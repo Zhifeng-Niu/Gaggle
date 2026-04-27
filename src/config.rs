@@ -15,6 +15,8 @@ pub struct Config {
     pub database_path: String,
     /// 服务器API密钥（用于服务间认证，可选）
     pub server_api_key: Option<String>,
+    /// 速率限制：每分钟请求数
+    pub rate_limit_rpm: u32,
 }
 
 impl Default for Config {
@@ -25,6 +27,7 @@ impl Default for Config {
             solana_rpc_url: "https://api.devnet.solana.com".to_string(),
             database_path: "gaggle.db".to_string(),
             server_api_key: None,
+            rate_limit_rpm: 120,
         }
     }
 }
@@ -43,6 +46,10 @@ impl Config {
             database_path: std::env::var("GAGGLE_DATABASE_PATH")
                 .unwrap_or_else(|_| "gaggle.db".to_string()),
             server_api_key: std::env::var("GAGGLE_SERVER_API_KEY").ok(),
+            rate_limit_rpm: std::env::var("GAGGLE_RATE_LIMIT_RPM")
+                .unwrap_or_else(|_| "120".to_string())
+                .parse()
+                .unwrap_or(120),
         }
     }
 

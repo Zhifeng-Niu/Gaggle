@@ -13,6 +13,8 @@ use gaggle::api::rest::AppState;
 use gaggle::api::routes::create_router;
 use gaggle::config::Config;
 use gaggle::discovery::DiscoveryStore;
+use gaggle::execution::ExecutionStore;
+use gaggle::marketplace::MarketplaceStore;
 use gaggle::negotiation::SpaceManager;
 use gaggle::reputation::ReputationStore;
 use gaggle::users::UserStore;
@@ -61,6 +63,16 @@ async fn main() -> anyhow::Result<()> {
     let reputation_store = Arc::new(reputation_store);
     tracing::info!("Reputation store initialized");
 
+    // 初始化 Execution Store
+    let execution_store = ExecutionStore::new(&config.database_path)?;
+    let execution_store = Arc::new(execution_store);
+    tracing::info!("Execution store initialized");
+
+    // 初始化 Marketplace Store
+    let marketplace_store = MarketplaceStore::new(&config.database_path)?;
+    let marketplace_store = Arc::new(marketplace_store);
+    tracing::info!("Marketplace store initialized");
+
     // 初始化离线事件队列
     let event_queue = EventQueue::new(&config.database_path)?;
     let event_queue = Arc::new(event_queue);
@@ -73,19 +85,21 @@ async fn main() -> anyhow::Result<()> {
         user_store,
         discovery_store,
         reputation_store,
+        execution_store,
+        marketplace_store,
         online_agents: Arc::new(RwLock::new(HashMap::new())),
         event_queue,
     };
 
     // 创建Router
-    let app = create_router(state);
+    let app = create_router(state, config.rate_limit_rpm);
 
     // 启动服务器
     let addr = config.server_addr();
     tracing::info!("Gaggle server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
 
     Ok(())
 }

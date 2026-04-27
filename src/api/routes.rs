@@ -1,22 +1,38 @@
 //! 路由定义
 
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
 
+use super::middleware::{RateLimitConfig, RateLimitState};
 use super::rest::AppState;
 use super::{health, openclaw, ws};
 
-pub fn create_router(state: AppState) -> Router {
+pub fn create_router(
+    state: AppState,
+    rate_limit_rpm: u32,
+) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // 速率限制配置 (RPM -> 60秒窗口)
+    // 120 RPM = 2 请求/秒 = 120 请求/60秒
+    let max_requests = rate_limit_rpm;
+    let window_seconds = 60u64;
+
+    let rate_limit_config = RateLimitConfig {
+        max_requests,
+        window_seconds,
+    };
+
+    let rate_limit_state = RateLimitState::new();
+
     Router::new()
-        // 健康检查
+        // 健康检查（不限流）
         .route("/health", get(health::health_check))
         // 用户账户
         .route("/api/v1/users/register", post(rest::register_user))
@@ -35,8 +51,12 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/agents/update",
             post(rest::update_agent),
         )
-        // Space
+        // Space — 创建（REST POST）
+        .route("/api/v1/spaces", post(rest::rest_create_space))
+        .route("/api/v1/spaces/rfp", post(rest::rest_create_rfp))
+        // Space — 读取
         .route("/api/v1/spaces/:space_id", get(rest::get_space))
+        .route("/api/v1/spaces/:space_id", delete(rest::delete_space))
         .route(
             "/api/v1/agents/:agent_id/spaces",
             get(rest::list_agent_spaces),
@@ -53,6 +73,38 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/spaces/:space_id/members",
             get(rest::get_space_members),
         )
+        // Space — 写操作（REST POST）
+        .route("/api/v1/spaces/:space_id/join", post(rest::rest_join_space))
+        .route("/api/v1/spaces/:space_id/join-approve", post(rest::rest_join_approve))
+        .route("/api/v1/spaces/:space_id/join-reject", post(rest::rest_join_reject))
+        .route("/api/v1/spaces/:space_id/leave", post(rest::rest_leave_space))
+        // Phase 13: Rules API
+        .route("/api/v1/spaces/:space_id/rules", get(rest::rest_get_rules))
+        .route("/api/v1/spaces/:space_id/rules", put(rest::rest_update_rules))
+        .route(
+            "/api/v1/spaces/:space_id/rules/transitions",
+            get(rest::rest_get_transitions),
+        )
+        .route("/api/v1/spaces/:space_id/send", post(rest::rest_send_message))
+        .route("/api/v1/spaces/:space_id/proposals/submit", post(rest::rest_submit_proposal))
+        .route(
+            "/api/v1/spaces/:space_id/proposals/:proposal_id/respond",
+            post(rest::rest_respond_to_proposal),
+        )
+        // Phase 3: 评估 & 轮次
+        .route(
+            "/api/v1/spaces/:space_id/proposals/evaluate",
+            post(rest::rest_evaluate_proposals),
+        )
+        .route(
+            "/api/v1/spaces/:space_id/rounds",
+            get(rest::rest_get_rounds),
+        )
+        .route(
+            "/api/v1/spaces/:space_id/rounds/advance",
+            post(rest::rest_advance_round),
+        )
+        .route("/api/v1/spaces/:space_id/close", post(rest::rest_close_space))
         .route(
             "/api/v1/spaces/:space_id/evidence",
             post(rest::submit_evidence),
@@ -67,6 +119,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/providers/me/profile",
             axum::routing::put(rest::update_provider_profile),
         )
+        // Need Broadcast
+        .route("/api/v1/needs", post(rest::publish_need))
+        .route("/api/v1/needs", get(rest::search_needs))
+        .route("/api/v1/needs/my", get(rest::get_my_needs))
+        .route("/api/v1/needs/:need_id", get(rest::get_need))
+        .route("/api/v1/needs/:need_id/cancel", post(rest::cancel_need))
+        .route(
+            "/api/v1/needs/:need_id/create-rfp",
+            post(rest::rest_create_rfp_from_need),
+        )
         // Reputation
         .route(
             "/api/v1/agents/:agent_id/reputation",
@@ -78,11 +140,85 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/agents/:agent_id/status",
             get(rest::get_agent_status),
         )
+        // Phase 4: 执行引擎 — 合同 & 里程碑
+        .route(
+            "/api/v1/spaces/:space_id/contract",
+            post(rest::rest_create_contract),
+        )
+        .route(
+            "/api/v1/contracts/:contract_id",
+            get(rest::rest_get_contract),
+        )
+        .route(
+            "/api/v1/agents/:agent_id/contracts",
+            get(rest::rest_get_agent_contracts),
+        )
+        .route(
+            "/api/v1/contracts/:contract_id/milestones/:milestone_id/submit",
+            post(rest::rest_submit_milestone),
+        )
+        .route(
+            "/api/v1/contracts/:contract_id/milestones/:milestone_id/accept",
+            post(rest::rest_accept_milestone),
+        )
+        .route(
+            "/api/v1/contracts/:contract_id/dispute",
+            post(rest::rest_dispute_contract),
+        )
+        // Phase 5: 模板市场
+        .route("/api/v1/templates", get(rest::list_templates))
+        .route(
+            "/api/v1/templates/:template_id",
+            get(rest::get_template),
+        )
+        // Phase 5: 市场信息中心
+        .route("/api/v1/market", get(rest::get_all_market_prices))
+        .route("/api/v1/market/:category", get(rest::get_market_prices))
+        .route("/api/v1/market/share", post(rest::share_market_price))
+        .route(
+            "/api/v1/market/:category/contributions",
+            get(rest::get_market_contributions),
+        )
         // WebSocket — Gaggle 原生（带 token 鉴权）
         .route("/ws/v1/agents/:agent_id", get(ws::websocket_handler))
         // WebSocket — OpenClaw 兼容 Gateway
         .route("/ws/v1/gateway", get(openclaw::gateway_handler))
+        // Phase 9: SubSpace
+        .route("/api/v1/spaces/:space_id/subspaces", post(rest::rest_create_subspace))
+        .route("/api/v1/spaces/:space_id/subspaces", get(rest::rest_list_subspaces))
+        .route("/api/v1/subspaces/:sub_space_id", get(rest::rest_get_subspace))
+        .route("/api/v1/subspaces/:sub_space_id/messages", post(rest::rest_subspace_send_message))
+        .route("/api/v1/subspaces/:sub_space_id/messages", get(rest::rest_get_subspace_messages))
+        .route("/api/v1/subspaces/:sub_space_id/proposals", post(rest::rest_subspace_submit_proposal))
+        .route("/api/v1/subspaces/:sub_space_id/proposals", get(rest::rest_get_subspace_proposals))
+        .route("/api/v1/subspaces/:sub_space_id/close", post(rest::rest_close_subspace))
+        // Phase 10: Coalitions
+        .route("/api/v1/spaces/:space_id/coalitions", post(rest::rest_create_coalition))
+        .route("/api/v1/spaces/:space_id/coalitions", get(rest::rest_list_coalitions))
+        .route("/api/v1/coalitions/:coalition_id", get(rest::rest_get_coalition))
+        .route("/api/v1/coalitions/:coalition_id/join", post(rest::rest_join_coalition))
+        .route("/api/v1/coalitions/:coalition_id/leave", post(rest::rest_leave_coalition))
+        .route("/api/v1/coalitions/:coalition_id/stance", put(rest::rest_update_coalition_stance))
+        .route("/api/v1/coalitions/:coalition_id/disband", post(rest::rest_disband_coalition))
+        // Phase 11: Delegations
+        .route("/api/v1/spaces/:space_id/delegations", post(rest::rest_create_delegation))
+        .route("/api/v1/spaces/:space_id/delegations", get(rest::rest_list_delegations))
+        .route("/api/v1/delegations/:delegation_id", delete(rest::rest_revoke_delegation))
+        .route("/api/v1/agents/:agent_id/delegations", get(rest::rest_list_agent_delegations))
+        // Phase 12: Recruitment
+        .route("/api/v1/spaces/:space_id/recruit", post(rest::rest_create_recruitment))
+        .route("/api/v1/spaces/:space_id/recruit/:recruitment_id/accept", post(rest::rest_accept_recruitment))
+        .route("/api/v1/spaces/:space_id/recruit/:recruitment_id/reject", post(rest::rest_reject_recruitment))
+        .route("/api/v1/spaces/:space_id/recruitments", get(rest::rest_list_recruitments))
         .with_state(state)
+        .layer(
+            // 应用速率限制中间件到所有路由（除了 /health）
+            axum::middleware::from_fn_with_state(
+                rate_limit_state.clone(),
+                super::middleware::rate_limit_middleware,
+            ),
+        )
+        .layer(axum::extract::Extension(rate_limit_config))
         .layer(cors)
 }
 

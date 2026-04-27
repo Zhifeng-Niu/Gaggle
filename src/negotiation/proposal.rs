@@ -25,6 +25,15 @@ impl ProposalType {
             ProposalType::BestAndFinal => "best_and_final",
         }
     }
+
+    pub fn from_str_safe(s: &str) -> Self {
+        match s {
+            "initial" => Self::Initial,
+            "counter" => Self::Counter,
+            "best_and_final" => Self::BestAndFinal,
+            _ => Self::Initial,
+        }
+    }
 }
 
 /// 提案状态
@@ -48,6 +57,16 @@ impl ProposalStatus {
             ProposalStatus::Accepted => "accepted",
             ProposalStatus::Rejected => "rejected",
             ProposalStatus::Superseded => "superseded",
+        }
+    }
+
+    pub fn from_str_safe(s: &str) -> Self {
+        match s {
+            "pending" => Self::Pending,
+            "accepted" => Self::Accepted,
+            "rejected" => Self::Rejected,
+            "superseded" => Self::Superseded,
+            _ => Self::Pending,
         }
     }
 }
@@ -269,4 +288,114 @@ pub struct BestTermsShared {
     pub space_id: String,
     pub best_dimensions: ProposalDimensions,
     pub shared_at: i64,
+}
+
+// ── 加权评估 ──────────────────────────────────────
+
+/// 加权评估配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationWeights {
+    /// 价格权重（0.0-1.0）
+    pub price: f64,
+    /// 交付周期权重（0.0-1.0）
+    pub timeline: f64,
+    /// 质量权重（0.0-1.0）
+    pub quality: f64,
+}
+
+impl Default for EvaluationWeights {
+    fn default() -> Self {
+        Self {
+            price: 0.4,
+            timeline: 0.3,
+            quality: 0.3,
+        }
+    }
+}
+
+impl EvaluationWeights {
+    /// 验证权重总和是否接近 1.0
+    pub fn is_valid(&self) -> bool {
+        let sum = self.price + self.timeline + self.quality;
+        (sum - 1.0).abs() < 0.01
+    }
+}
+
+/// 单维度评分
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DimensionScores {
+    /// 价格评分（0.0-1.0，越低越好）
+    pub price_score: f64,
+    /// 周期评分（0.0-1.0，越短越好）
+    pub timeline_score: f64,
+    /// 质量评分（0.0-1.0）
+    pub quality_score: f64,
+}
+
+/// 提案评分结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposalScore {
+    pub proposal_id: String,
+    pub provider_id: String,
+    pub weighted_score: f64,
+    pub dimension_scores: DimensionScores,
+}
+
+/// 评估请求
+#[derive(Debug, Deserialize)]
+pub struct EvaluateRequest {
+    #[serde(default)]
+    pub weights: EvaluationWeights,
+}
+
+/// 评估响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluateResponse {
+    pub scores: Vec<ProposalScore>,
+    pub sorted_by: String,
+}
+
+// ── 轮次状态 ──────────────────────────────────────
+
+/// 轮次状态
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoundStatus {
+    /// 接受提案中
+    Open,
+    /// 轮次已关闭
+    Closed,
+    /// 轮次已过期
+    Expired,
+}
+
+impl RoundStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RoundStatus::Open => "open",
+            RoundStatus::Closed => "closed",
+            RoundStatus::Expired => "expired",
+        }
+    }
+}
+
+/// 轮次信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoundInfo {
+    pub current_round: u32,
+    pub allowed_rounds: Option<u32>,
+    pub round_status: RoundStatus,
+    pub round_deadline: Option<i64>,
+}
+
+/// 质量等级 → 评分映射
+pub fn quality_tier_score(tier: &str) -> f64 {
+    match tier.to_lowercase().as_str() {
+        "premium" | "5" | "5.0" => 1.0,
+        "high" | "4" | "4.0" => 0.85,
+        "standard" | "3" | "3.0" => 0.7,
+        "basic" | "2" | "2.0" => 0.4,
+        "economy" | "1" | "1.0" => 0.2,
+        _ => 0.5, // 未知等级给中间分
+    }
 }

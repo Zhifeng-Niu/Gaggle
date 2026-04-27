@@ -89,8 +89,7 @@ pub fn compute_session_hash(messages: &[crate::negotiation::SpaceMessage]) -> St
         hasher.update(msg.space_id.as_bytes());
         hasher.update(msg.sender_id.as_bytes());
         hasher.update(format!("{:?}", msg.msg_type).as_bytes());
-        hasher.update(msg.content.cipher.as_bytes());
-        hasher.update(msg.content.nonce.as_bytes());
+        hasher.update(msg.content.as_bytes());
         hasher.update(msg.timestamp.to_le_bytes());
         hasher.update(msg.round.to_le_bytes());
     }

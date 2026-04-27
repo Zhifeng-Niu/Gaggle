@@ -7,19 +7,28 @@ pub mod api;
 pub mod config;
 pub mod discovery;
 pub mod error;
+pub mod execution;
+pub mod marketplace;
 pub mod negotiation;
 pub mod reputation;
 pub mod solana;
+pub mod templates;
 pub mod users;
 
 pub use agents::registry::AgentRegistry;
 pub use config::Config;
 pub use discovery::DiscoveryStore;
 pub use error::GaggleError;
+pub use execution::ExecutionStore;
+pub use marketplace::MarketplaceStore;
 pub use negotiation::{
-    BestTermsShared, CreateRfpRequest, MessageVisibility, Proposal, ProposalDimensions,
-    ProposalResponseAction, ProposalStatus, ProposalType, RespondToProposalRequest, RfpContext,
-    ShareBestTermsRequest, Space, SpaceStatus, SpaceType, SubmitProposalRequest,
+    BestTermsShared, Coalition, CoalitionStatus, CreateCoalitionRequest, CreateDelegationRequest,
+    CreateRecruitmentRequest, CreateRfpRequest, CreateSubSpaceRequest, Delegation, DelegationScope,
+    DelegationStatus, JoinPolicy, LockCondition, MessageVisibility, Proposal, ProposalDimensions,
+    ProposalResponseAction, ProposalStatus, ProposalType, RecruitmentRequest, RecruitmentStatus,
+    RevealMode, RespondToProposalRequest, RfpContext, RoleConfig, RoundConfig, RuleTransition,
+    RuleTrigger, ShareBestTermsRequest, Space, SpaceRules, SpaceRulesOverrides, SpaceStatus,
+    SpaceType, SubSpace, SubmitProposalRequest, UpdateStanceRequest, VisibilityRule, VisibilityRules,
 };
 pub use reputation::ReputationStore;
 pub use users::UserStore;

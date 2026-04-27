@@ -172,6 +172,7 @@ impl ReputationCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reputation::EventType;
 
     #[test]
     fn test_recency_weight_calculation() {
@@ -186,14 +187,14 @@ mod tests {
             id: "1".to_string(),
             agent_id: "agent1".to_string(),
             space_id: "space1".to_string(),
-            event_type: super::types::EventType::Concluded,
+            event_type: EventType::Concluded,
             outcome: Outcome::Success,
             rating: Some(5),
             counterparty_id: "other".to_string(),
             created_at: now,
         };
 
-        let weight = calculator.calculate_recency_weight(&[recent_event], now);
+        let weight = calculator.calculate_recency_weight(&[recent_event.clone()], now);
         assert!(weight > 0.9, "Recent event should have high weight");
 
         // 测试：30天前的事件应该有接近 0.0 的权重

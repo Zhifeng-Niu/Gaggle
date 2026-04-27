@@ -16,8 +16,8 @@ use crate::negotiation::ProposalDimensions;
 
 use super::rest::AppState;
 use super::ws::{
-    self, CloseSpacePayload, CreateSpacePayload, JoinSpacePayload, SendMessagePayload,
-    SubmitProposalPayload, WsIncoming, WsOutgoing,
+    self, CloseSpacePayload, CreateSpacePayload, SendMessagePayload, SubmitProposalPayload,
+    WsIncoming, WsOutgoing,
 };
 
 // ── OpenClaw 协议类型 ─────────────────────────────────
@@ -147,13 +147,15 @@ async fn handle_gateway_socket(socket: axum::extract::ws::WebSocket, state: AppS
 
     // ── 2. 注册到在线连接表（多连接支持） ──────────────
     let now_ts = chrono::Utc::now().timestamp_millis();
+    let conn_id = super::ws::NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let personal_tx = {
         let (tx, _rx) = broadcast::channel::<String>(256);
         let mut online = state.online_agents.write().await;
         online.entry(agent.id.clone()).or_default().push(super::rest::ConnectionInfo {
             tx: tx.clone(),
             connected_since: now_ts,
-            last_ping: now_ts,
+            last_ping: std::sync::atomic::AtomicI64::new(now_ts),
+            conn_id,
         });
         tx
     };
@@ -171,8 +173,15 @@ async fn handle_gateway_socket(socket: axum::extract::ws::WebSocket, state: AppS
     let mt = merged_tx.clone();
     tokio::spawn(async move {
         let mut rx = personal_forward;
-        while let Ok(msg) = rx.recv().await {
-            let _ = mt.send(msg);
+        loop {
+            match rx.recv().await {
+                Ok(msg) => { let _ = mt.send(msg); }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "openclaw personal channel lagged, continuing");
+                    continue;
+                }
+                Err(_) => break,
+            }
         }
     });
 
@@ -182,8 +191,15 @@ async fn handle_gateway_socket(socket: axum::extract::ws::WebSocket, state: AppS
             let mt = merged_tx.clone();
             tokio::spawn(async move {
                 let mut rx = tx.subscribe();
-                while let Ok(msg) = rx.recv().await {
-                    let _ = mt.send(msg);
+                loop {
+                    match rx.recv().await {
+                        Ok(msg) => { let _ = mt.send(msg); }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(skipped = n, "openclaw space channel lagged, continuing");
+                            continue;
+                        }
+                        Err(_) => break,
+                    }
                 }
             });
         }
@@ -233,7 +249,7 @@ async fn handle_gateway_socket(socket: axum::extract::ws::WebSocket, state: AppS
     {
         let mut online = state.online_agents.write().await;
         if let Some(conns) = online.get_mut(&agent.id) {
-            conns.retain(|c| c.connected_since != now_ts);
+            conns.retain(|c| c.conn_id != conn_id);
             if conns.is_empty() {
                 online.remove(&agent.id);
             }
@@ -307,6 +323,7 @@ async fn handle_openclaw_message(
             invitee_ids,
             context,
         } => WsIncoming::CreateSpace {
+            request_id: None,
             payload: CreateSpacePayload {
                 name,
                 invitee_ids,
@@ -315,7 +332,8 @@ async fn handle_openclaw_message(
             },
         },
         OpenClawIncoming::JoinSpace { space_id } => WsIncoming::JoinSpace {
-            payload: JoinSpacePayload { space_id },
+            request_id: None,
+            space_id,
         },
         OpenClawIncoming::SendMessage {
             space_id,
@@ -325,6 +343,7 @@ async fn handle_openclaw_message(
         } => {
             let mt = parse_msg_type(&msg_type);
             WsIncoming::SendMessage {
+                request_id: None,
                 space_id,
                 payload: SendMessagePayload {
                     msg_type: mt,
@@ -339,8 +358,9 @@ async fn handle_openclaw_message(
             dimensions,
             parent_proposal_id,
         } => WsIncoming::SubmitProposal {
+            request_id: None,
+            space_id,
             payload: SubmitProposalPayload {
-                space_id,
                 proposal_type,
                 dimensions,
                 parent_proposal_id,
@@ -351,6 +371,7 @@ async fn handle_openclaw_message(
             conclusion,
             final_terms,
         } => WsIncoming::CloseSpace {
+            request_id: None,
             space_id,
             payload: CloseSpacePayload {
                 conclusion,
@@ -359,8 +380,9 @@ async fn handle_openclaw_message(
         },
     };
 
-    // 复用 Gaggle 原生 WebSocket 的消息处理逻辑
-    ws::handle_ws_message(&serde_json::to_string(&gaggle_msg)?, agent, state).await
+    // 复用 Gaggle 原生 WebSocket 的消息处理逻辑（忽略 ACK 返回值）
+    let _ = ws::handle_ws_message(&serde_json::to_string(&gaggle_msg)?, agent, state).await?;
+    Ok(())
 }
 
 /// 将字符串消息类型解析为 Gaggle MessageType

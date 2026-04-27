@@ -38,4 +38,18 @@ impl MessageType {
             MessageType::System => "system",
         }
     }
+
+    pub fn from_str_safe(s: &str) -> Self {
+        match s {
+            "text" => Self::Text,
+            "proposal" => Self::Proposal,
+            "counter_proposal" => Self::CounterProposal,
+            "acceptance" => Self::Acceptance,
+            "rejection" => Self::Rejection,
+            "withdrawal" => Self::Withdrawal,
+            "attachment" => Self::Attachment,
+            "system" => Self::System,
+            _ => Self::Text,
+        }
+    }
 }

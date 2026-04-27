@@ -3,6 +3,7 @@
 use super::types::*;
 use crate::error::GaggleError;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -267,5 +268,54 @@ impl ReputationStore {
 
         let count: i64 = stmt.query_row(params![agent_id, space_id], |row| row.get(0))?;
         Ok(count > 0)
+    }
+
+    /// 批量获取多个 Agent 的信誉摘要
+    pub async fn get_batch_summaries(
+        &self,
+        agent_ids: Vec<String>,
+    ) -> Result<HashMap<String, ReputationSummary>, GaggleError> {
+        if agent_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // 用 OR 链构建 WHERE 子句（rusqlite 不支持 unnest）
+        let placeholders: Vec<String> = agent_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+
+        let sql = format!(
+            "SELECT agent_id, total_negotiations, successful, avg_rating, fulfillment_rate, reputation_score, last_updated
+             FROM reputation_summary WHERE agent_id IN ({})",
+            placeholders.join(",")
+        );
+
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(&sql)?;
+
+        let params: Vec<&dyn rusqlite::ToSql> =
+            agent_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+
+        let mut map = HashMap::new();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(ReputationSummary {
+                agent_id: row.get(0)?,
+                total_negotiations: row.get(1)?,
+                successful: row.get(2)?,
+                avg_rating: row.get(3)?,
+                fulfillment_rate: row.get(4)?,
+                reputation_score: row.get(5)?,
+                last_updated: row.get(6)?,
+            })
+        })?;
+
+        for row in rows {
+            let summary = row?;
+            map.insert(summary.agent_id.clone(), summary);
+        }
+
+        Ok(map)
     }
 }

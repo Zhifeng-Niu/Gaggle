@@ -104,3 +104,67 @@
 - 文档页仍有大量技术正文保持英文，仅完成导航与首屏层的风格统一；若后续需要，可再做全文中文化。
 - 当前前端对 `create_space` / `create_rfp` 采用 WebSocket 发送并依赖服务端事件回流，尚未加入表单级 loading 状态与更细颗粒的失败回执提示。
 - 信誉评分页目前面向“当前 Agent 自身信誉”和“对手方手动评分”两类主流程，尚未补充跨 Agent 信誉横向对比与筛选排序能力。
+
+## 追加记录（2026-04-26 / 设计系统统一与 Tokens 抽离）
+
+### 项目前情况补充
+- `/Users/stbz/atrrax/Gaggle_cline/frontend/style.css` 已经同时承载 Landing、控制台、文档样式，但变量分散在多个 `:root` 块中，旧变量与 Landing 专用变量并行，长期维护成本高。
+- `/Users/stbz/atrrax/Gaggle_cline/frontend/index.html`、`/Users/stbz/atrrax/Gaggle_cline/frontend/docs.html` 虽已完成中文化和功能补页，但组件视觉仍有不一致：按钮样式、圆角体系、卡片边框、阴影层级、文档块与控制台卡片的语言不同。
+- 项目缺少独立的设计系统说明页，后续新增页面或组件时没有统一的 token 文档和复用约束。
+
+### 本轮改动明细
+
+#### 1) `/Users/stbz/atrrax/Gaggle_cline/frontend/design-tokens.css`
+- 新增设计基础层，统一定义字体、颜色、描边、阴影、半径、间距、尺寸、时长、容器宽度与 safe-area token。
+- 保留旧命名兼容别名，例如 `--bg-card`、`--accent`、`--landing-*`、`--space-*`，确保现有页面无需大范围重写类名即可接入新视觉基线。
+- 将状态色抽象成 created / active / concluded / cancelled / expired 语义变量，供徽标、消息类型、时间线等组件复用。
+
+#### 2) `/Users/stbz/atrrax/Gaggle_cline/frontend/design-system.css`
+- 新增组件层覆盖样式，统一 Landing、Console、Docs 的导航、按钮、输入框、卡片、消息气泡、代码块、表格、底部标签栏、响应式断点表现。
+- 对移动端继续遵守“底部标签栏 + 单列卡片 + safe-area”规则，避免控制台在手机端出现多级复杂布局。
+- 用统一的玻璃面板、冷色高光与语义边框替换原先分裂的组件视觉，同时保持现有 DOM 与业务逻辑不变。
+
+#### 3) `/Users/stbz/atrrax/Gaggle_cline/frontend/design-system.html`
+- 新增设计系统文档页，沉淀设计原则、核心 token、字体层级、组件规范、布局系统、移动端约束与开发用法。
+- 该页面本身复用了 docs 页面布局与新样式，作为后续前端扩展的视觉规范入口。
+
+#### 4) `/Users/stbz/atrrax/Gaggle_cline/frontend/index.html`
+- 在首页引入 `design-tokens.css` 与 `design-system.css`。
+- 为 Landing 顶部导航、控制台头部导航与页脚新增“设计系统”入口，形成首页 / 文档 / 设计系统统一信息架构。
+- 保留最近一轮工作台、Provider 发现、RFP、信誉与我的资料结构，不动既有业务表单与数据流。
+
+#### 5) `/Users/stbz/atrrax/Gaggle_cline/frontend/docs.html`
+- 同步引入 `design-tokens.css` 与 `design-system.css`，让接入文档页与首页、控制台共享同一套设计系统。
+- 在顶部导航、侧栏目录和首屏 TOC 中新增“设计系统”入口，增强文档间的可发现性。
+
+#### 6) `/Users/stbz/atrrax/Gaggle_cline/PROJECT_STATUS_20260426_DESIGN_SYSTEM.txt`
+- 新建本轮专项状态文件，记录改动前情况、目标、实际修改与验证预期，便于后续 coder 轮次追踪。
+
+#### 7) 追加交付文档
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/DESIGN_SYSTEM_GUIDE.md`
+  - 汇总颜色板、字体系统、间距规范、组件状态、栅格与使用约定，作为代码外的设计系统说明书。
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/design-tokens.json`
+  - 以 JSON 形式导出核心设计令牌，便于后续对接 Figma Tokens、Style Dictionary 或其他设计资产同步工具。
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/BROWSER_COMPATIBILITY_REPORT.md`
+  - 记录浏览器目标矩阵、已知风险点、已完成验证与后续建议。
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/PERFORMANCE_REPORT.md`
+  - 记录本轮样式重构的策略、性能影响判断与后续优化方向。
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/MAINTENANCE_GUIDE.md`
+  - 约束后续新增页面如何接入 tokens、复用组件并记录日志。
+- 新增 `/Users/stbz/atrrax/Gaggle_cline/frontend/VISUAL_REGRESSION_CHECKLIST.md`
+  - 建立 Landing / Console / Docs / Design System 的视觉回归验收清单。
+
+### 本轮自测与验证结果
+- 已检查 `frontend/index.html`、`frontend/docs.html`、`frontend/design-system.html`、`frontend/design-tokens.css`、`frontend/design-system.css` 的编辑器诊断，均无新增错误。
+- 已执行 `node --check /Users/stbz/atrrax/Gaggle_cline/frontend/app.js`，确认控制台脚本未受样式重构影响。
+- 已先清理本地 `8080`、`4173` 端口占用，再重启后端与前端静态服务。
+- 后端以 `GAGGLE_DATABASE_PATH=/tmp/gaggle-ui-design-system.db cargo run` 启动，并验证 `http://127.0.0.1:8080/health` 返回 `200`。
+- 前端以 `python3 -m http.server 4173 --directory /Users/stbz/atrrax/Gaggle_cline/frontend` 启动，并验证以下页面均返回 `200`：
+  - `http://127.0.0.1:4173/`
+  - `http://127.0.0.1:4173/docs.html`
+  - `http://127.0.0.1:4173/design-system.html`
+- 已补充显式断点（320 / 768 / 1024 / 1440）、12 列栅格、按钮四态与可访问性说明到设计系统文档与 token 文件中。
+
+### 当前遗留项
+- `style.css` 仍保留历史样式实现，当前通过新增 tokens 与 design-system 覆盖层完成统一；后续若继续深度整理，可把结构层与组件层再拆分得更细。
+- docs 正文主体仍保留部分英文技术内容，本轮重点是视觉与规范统一，没有做全文翻译。

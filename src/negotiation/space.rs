@@ -6,6 +6,7 @@ use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use super::message::MessageType;
+use super::rules::SpaceRules;
 
 /// Space状态
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -110,10 +111,13 @@ pub struct Space {
     pub joined_agent_ids: Vec<String>,
     /// 当前状态
     pub status: SpaceStatus,
-    /// Space 类型（双边/多方 RFP）
+    /// Space 类型（双边/多方 RFP）— 向后兼容，从 rules 推导
     #[serde(default)]
     pub space_type: SpaceType,
-    /// RFP 上下文（仅 RFP 类型有效）
+    /// 空间规则配置（Phase 6+）
+    #[serde(default)]
+    pub rules: SpaceRules,
+    /// RFP 上下文（仅 RFP 类型有效）— 向后兼容，从 rules.rounds 推导
     #[serde(default)]
     pub rfp_context: Option<JsonValue>,
     /// 共享上下文（需求描述、约束等）
@@ -132,6 +136,10 @@ pub struct Space {
     /// Seller Agent ID（per-space 角色）
     #[serde(default)]
     pub seller_id: Option<String>,
+    /// Pending join requests — 仅 ApprovalRequired 模式使用
+    /// Vec of (agent_id, requested_at_timestamp)
+    #[serde(default)]
+    pub pending_join_requests: Vec<(String, i64)>,
 }
 
 impl Space {
@@ -162,6 +170,7 @@ impl Space {
             joined_agent_ids: vec![creator_id], // creator 创建时即已加入
             status: SpaceStatus::Created,
             space_type: SpaceType::Bilateral,
+            rules: SpaceRules::bilateral(),
             rfp_context: None,
             context,
             encryption_key,
@@ -170,6 +179,7 @@ impl Space {
             closed_at: None,
             buyer_id,
             seller_id,
+            pending_join_requests: Vec::new(),
         }
     }
 
@@ -186,6 +196,14 @@ impl Space {
         let mut agent_ids = vec![creator_id.clone()];
         agent_ids.extend(provider_ids);
 
+        let mut rules = SpaceRules::rfp();
+        rules.apply_rfp_overrides(
+            rfp_context.allowed_rounds,
+            rfp_context.evaluation_criteria.clone(),
+            rfp_context.deadline,
+            rfp_context.share_best_terms,
+        );
+
         Self {
             id: Uuid::new_v4().to_string(),
             name,
@@ -194,6 +212,7 @@ impl Space {
             joined_agent_ids: vec![creator_id.clone()],
             status: SpaceStatus::Created,
             space_type: SpaceType::Rfp,
+            rules,
             rfp_context: Some(serde_json::to_value(rfp_context).unwrap_or_default()),
             context,
             encryption_key,
@@ -202,6 +221,7 @@ impl Space {
             closed_at: None,
             buyer_id: Some(creator_id), // RFP creator is always buyer
             seller_id: None,
+            pending_join_requests: Vec::new(),
         }
     }
 
@@ -262,8 +282,8 @@ pub struct SpaceMessage {
     pub sender_id: String,
     /// 消息类型
     pub msg_type: MessageType,
-    /// 加密内容
-    pub content: EncryptedContent,
+    /// 消息内容（明文；旧数据为加密 JSON，读取时自动解密）
+    pub content: String,
     /// Unix时间戳（毫秒）
     pub timestamp: i64,
     /// 谈判轮次
@@ -284,7 +304,7 @@ impl SpaceMessage {
         space_id: String,
         sender_id: String,
         msg_type: MessageType,
-        content: EncryptedContent,
+        content: String,
         round: u32,
         metadata: Option<JsonValue>,
     ) -> Self {
@@ -307,7 +327,7 @@ impl SpaceMessage {
         space_id: String,
         sender_id: String,
         msg_type: MessageType,
-        content: EncryptedContent,
+        content: String,
         round: u32,
         recipient_ids: Vec<String>,
         metadata: Option<JsonValue>,

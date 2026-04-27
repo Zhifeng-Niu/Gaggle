@@ -10,15 +10,20 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 use crate::agents::Agent;
 use crate::negotiation::{
     MessageType, ProposalDimensions, ProposalResponseAction, ProposalType, SpaceStatus,
+    VisibilityEngine,
 };
 
 use super::rest::AppState;
+
+// ── 全局连接 ID 计数器 ──────────────────────────────────
+pub(crate) static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 // ── WS 协议类型 ──────────────────────────────────────
 
@@ -67,7 +72,6 @@ pub struct CreateRfpPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitProposalPayload {
-    pub space_id: String,
     pub proposal_type: String,
     pub dimensions: ProposalDimensions,
     pub parent_proposal_id: Option<String>,
@@ -75,7 +79,6 @@ pub struct SubmitProposalPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RespondToProposalPayload {
-    pub space_id: String,
     pub proposal_id: String,
     pub action: String,
     pub counter_dimensions: Option<ProposalDimensions>,
@@ -83,8 +86,74 @@ pub struct RespondToProposalPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareBestTermsPayload {
-    pub space_id: String,
     pub best_dimensions: ProposalDimensions,
+}
+
+// Need Broadcast payloads
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishNeedWsPayload {
+    pub title: String,
+    pub description: String,
+    pub category: String,
+    #[serde(default)]
+    pub required_skills: Vec<String>,
+    pub budget_min: Option<f64>,
+    pub budget_max: Option<f64>,
+    pub deadline: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListNeedsPayload {
+    pub category: Option<String>,
+    pub skills: Option<String>,
+    pub query: Option<String>,
+    #[serde(default)]
+    pub page: Option<u32>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+}
+
+// Phase 3: Need → RFP
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeedToRfpPayload {
+    pub need_id: String,
+    pub provider_ids: Vec<String>,
+    pub allowed_rounds: Option<u32>,
+    pub deadline: Option<i64>,
+    pub share_best_terms: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoundAdvancedPayload {
+    pub new_round: u32,
+    pub round_status: String,
+}
+
+// Phase 4: 执行引擎 payloads
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractCreatedPayload {
+    pub contract_id: String,
+    pub buyer_id: String,
+    pub seller_id: String,
+    pub milestone_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilestoneSubmittedPayload {
+    pub milestone_id: String,
+    pub milestone_title: String,
+    pub deliverable_url: String,
+    pub submitted_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilestoneAcceptedPayload {
+    pub milestone_id: String,
+    pub milestone_title: String,
+    pub accepted: bool,
+    pub accepted_at: i64,
 }
 
 // P3 命令 payloads
@@ -107,29 +176,48 @@ pub struct CheckOnlinePayload {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsIncoming {
     CreateSpace {
+        #[serde(default)]
+        request_id: Option<String>,
         payload: CreateSpacePayload,
     },
     CreateRfp {
+        #[serde(default)]
+        request_id: Option<String>,
         payload: CreateRfpPayload,
     },
     JoinSpace {
-        payload: JoinSpacePayload,
+        #[serde(default)]
+        request_id: Option<String>,
+        space_id: String,
     },
     SendMessage {
+        #[serde(default)]
+        request_id: Option<String>,
         space_id: String,
         payload: SendMessagePayload,
     },
     CloseSpace {
+        #[serde(default)]
+        request_id: Option<String>,
         space_id: String,
         payload: CloseSpacePayload,
     },
     SubmitProposal {
+        #[serde(default)]
+        request_id: Option<String>,
+        space_id: String,
         payload: SubmitProposalPayload,
     },
     RespondToProposal {
+        #[serde(default)]
+        request_id: Option<String>,
+        space_id: String,
         payload: RespondToProposalPayload,
     },
     ShareBestTerms {
+        #[serde(default)]
+        request_id: Option<String>,
+        space_id: String,
         payload: ShareBestTermsPayload,
     },
     // P3 命令
@@ -144,7 +232,29 @@ pub enum WsIncoming {
         payload: CheckOnlinePayload,
     },
     LeaveSpace {
-        payload: LeaveSpacePayload,
+        #[serde(default)]
+        request_id: Option<String>,
+        space_id: String,
+    },
+    // Need Broadcast
+    PublishNeed {
+        #[serde(default)]
+        request_id: Option<String>,
+        payload: PublishNeedWsPayload,
+    },
+    ListNeeds {
+        payload: ListNeedsPayload,
+    },
+    CancelNeed {
+        #[serde(default)]
+        request_id: Option<String>,
+        need_id: String,
+    },
+    // Phase 3: Need → RFP
+    NeedToRfp {
+        #[serde(default)]
+        request_id: Option<String>,
+        payload: NeedToRfpPayload,
     },
     // 离线事件恢复：客户端告知最后收到的 event_seq，服务端补发之后的事件
     Resume {
@@ -261,6 +371,27 @@ pub struct SpaceLeftPayload {
     pub space_status: String,
 }
 
+// Need Broadcast outgoing payloads
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeedPublishedPayload {
+    pub need: crate::discovery::Need,
+    pub matched_provider_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeedMatchedPayload {
+    pub need: crate::discovery::Need,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeedsListPayload {
+    pub needs: Vec<crate::discovery::Need>,
+    pub total: u32,
+    pub page: u32,
+    pub page_size: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsOutgoing {
@@ -319,6 +450,42 @@ pub enum WsOutgoing {
         space_id: String,
         payload: SpaceLeftPayload,
     },
+    // Need Broadcast
+    NeedPublished {
+        need_id: String,
+        payload: NeedPublishedPayload,
+    },
+    NeedMatched {
+        need_id: String,
+        payload: NeedMatchedPayload,
+    },
+    NeedCancelled {
+        need_id: String,
+    },
+    NeedsList {
+        payload: NeedsListPayload,
+    },
+    // Phase 3: 轮次推进
+    RoundAdvanced {
+        space_id: String,
+        payload: RoundAdvancedPayload,
+    },
+    // Phase 4: 执行引擎
+    ContractCreated {
+        space_id: String,
+        payload: ContractCreatedPayload,
+    },
+    MilestoneSubmitted {
+        contract_id: String,
+        payload: MilestoneSubmittedPayload,
+    },
+    MilestoneAccepted {
+        contract_id: String,
+        payload: MilestoneAcceptedPayload,
+    },
+    ContractCompleted {
+        contract_id: String,
+    },
     Error {
         space_id: Option<String>,
         payload: ErrorPayload,
@@ -333,6 +500,75 @@ pub enum WsOutgoing {
         event_seq: i64,
         event_type: String,
         payload: serde_json::Value,
+    },
+    // Phase 9: SubSpace events
+    SubSpaceCreated {
+        parent_space_id: String,
+        sub_space: crate::negotiation::SubSpace,
+    },
+    SubSpaceMessage {
+        sub_space_id: String,
+        message: crate::negotiation::SpaceMessage,
+    },
+    SubSpaceProposal {
+        sub_space_id: String,
+        proposal: crate::negotiation::Proposal,
+    },
+    SubSpaceClosed {
+        sub_space_id: String,
+        parent_space_id: String,
+        status: crate::negotiation::SpaceStatus,
+    },
+    // Phase 10: Coalition events
+    CoalitionCreated {
+        space_id: String,
+        coalition: crate::negotiation::Coalition,
+    },
+    CoalitionMemberJoined {
+        coalition_id: String,
+        agent_id: String,
+    },
+    CoalitionMemberLeft {
+        coalition_id: String,
+        agent_id: String,
+    },
+    CoalitionStanceUpdated {
+        coalition_id: String,
+        stance: Option<serde_json::Value>,
+    },
+    CoalitionDisbanded {
+        coalition_id: String,
+        space_id: String,
+    },
+    // Phase 11: Delegation events
+    DelegationCreated {
+        delegation: crate::negotiation::Delegation,
+    },
+    DelegationRevoked {
+        delegation_id: String,
+        space_id: String,
+    },
+    // Phase 12: Recruitment events
+    RecruitmentCreated {
+        recruitment: crate::negotiation::RecruitmentRequest,
+    },
+    RecruitmentAccepted {
+        space_id: String,
+        recruitment_id: String,
+        target_id: String,
+    },
+    /// 操作确认：匹配客户端 request_id，返回操作结果
+    Ack {
+        request_id: String,
+        result: String,  // "ok" | "error"
+        #[serde(skip_serializing_if = "Option::is_none")]
+        space_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        proposal_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
     },
 }
 
@@ -461,6 +697,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
     };
 
     // 多连接支持：追加新连接（不踢旧连接）
+    let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
     let now_ts = chrono::Utc::now().timestamp_millis();
     let personal_tx = {
         let mut online = state.online_agents.write().await;
@@ -468,7 +705,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
         let conn_info = super::rest::ConnectionInfo {
             tx: tx.clone(),
             connected_since: now_ts,
-            last_ping: now_ts,
+            last_ping: std::sync::atomic::AtomicI64::new(now_ts),
+            conn_id,
         };
         online.entry(agent.id.clone()).or_default().push(conn_info);
         tx
@@ -497,21 +735,34 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
     let mt = merged_tx.clone();
     tokio::spawn(async move {
         let mut rx = personal_forward;
-        while let Ok(msg) = rx.recv().await {
-            let _ = mt.send(msg);
+        loop {
+            match rx.recv().await {
+                Ok(msg) => { let _ = mt.send(msg); }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "personal channel lagged, continuing");
+                    continue;
+                }
+                Err(_) => break, // Closed
+            }
         }
     });
 
     // 转发已有的 space broadcast channels
-    for (space_id, rx) in space_rxs {
+    for (_space_id, rx) in space_rxs {
         let mt = merged_tx.clone();
         tokio::spawn(async move {
             let mut rx = rx;
-            while let Ok(msg) = rx.recv().await {
-                let _ = mt.send(msg);
+            loop {
+                match rx.recv().await {
+                    Ok(msg) => { let _ = mt.send(msg); }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "space channel lagged, continuing");
+                        continue;
+                    }
+                    Err(_) => break,
+                }
             }
         });
-        let _ = &space_id;
     }
 
     // 自动重放离线事件
@@ -567,49 +818,60 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
                     Some(Ok(WsMessage::Text(text))) => {
                         // 重置心跳计时器
                         last_activity = Instant::now();
-                        // 更新 last_ping（只更新自己的连接）
-                        {
-                            let mut online = state.online_agents.write().await;
-                            if let Some(conns) = online.get_mut(&agent.id) {
-                                for conn in conns.iter_mut() {
-                                    if conn.connected_since == now_ts {
-                                        conn.last_ping = chrono::Utc::now().timestamp_millis();
-                                    }
-                                }
+
+                        match handle_ws_message(
+                            &text, &agent, &state
+                        ).await {
+                            Ok(Some(ack)) => {
+                                // 发送 ACK 响应到此连接
+                                let json = serde_json::to_string(&ack).unwrap_or_default();
+                                let _ = sender.send(WsMessage::Text(json)).await;
+                            }
+                            Ok(None) => {} // 无 ACK 需要发送
+                            Err(e) => {
+                                let error_msg = serde_json::to_string(&WsOutgoing::Error {
+                                    space_id: None,
+                                    payload: ErrorPayload {
+                                        code: "INTERNAL_ERROR".to_string(),
+                                        message: e.to_string(),
+                                    },
+                                }).unwrap_or_default();
+                                let _ = sender.send(WsMessage::Text(error_msg)).await;
                             }
                         }
 
-                        if let Err(e) = handle_ws_message(
-                            &text, &agent, &state
-                        ).await {
-                            let error_msg = serde_json::to_string(&WsOutgoing::Error {
-                                space_id: None,
-                                payload: ErrorPayload {
-                                    code: "INTERNAL_ERROR".to_string(),
-                                    message: e.to_string(),
-                                },
-                            }).unwrap_or_default();
-                            let _ = sender.send(WsMessage::Text(error_msg)).await;
-                        }
-
                         // 处理完消息后，检查是否有新加入的 space 需要订阅
-                        let current_spaces = state
-                            .space_manager
-                            .get_agent_spaces(&agent.id)
-                            .await
-                            .unwrap_or_default();
-                        for space in &current_spaces {
-                            if !subscribed_space_ids.contains(&space.id) {
-                                if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
-                                    let rx = tx.subscribe();
-                                    let mt = merged_tx.clone();
-                                    tokio::spawn(async move {
-                                        let mut rx = rx;
-                                        while let Ok(msg) = rx.recv().await {
-                                            let _ = mt.send(msg);
-                                        }
-                                    });
-                                    subscribed_space_ids.insert(space.id.clone());
+                        // 仅在可能变更 space 的命令后检查
+                        let need_resub = match &text[..] {
+                            t if t.contains("create_space") || t.contains("join_space") || t.contains("leave_space") || t.contains("create_rfp") => true,
+                            _ => false,
+                        };
+                        if need_resub {
+                            let current_spaces = state
+                                .space_manager
+                                .get_agent_spaces(&agent.id)
+                                .await
+                                .unwrap_or_default();
+                            for space in &current_spaces {
+                                if !subscribed_space_ids.contains(&space.id) {
+                                    if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+                                        let rx = tx.subscribe();
+                                        let mt = merged_tx.clone();
+                                        tokio::spawn(async move {
+                                            let mut rx = rx;
+                                            loop {
+                                                match rx.recv().await {
+                                                    Ok(msg) => { let _ = mt.send(msg); }
+                                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                                        tracing::warn!(skipped = n, "space channel lagged, continuing");
+                                                        continue;
+                                                    }
+                                                    Err(_) => break,
+                                                }
+                                            }
+                                        });
+                                        subscribed_space_ids.insert(space.id.clone());
+                                    }
                                 }
                             }
                         }
@@ -618,13 +880,17 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
                     Some(Err(_)) => break,
                     Some(Ok(WsMessage::Ping(_))) => {
                         last_activity = Instant::now();
-                        // 更新 last_ping（只更新自己的连接）
+                        // AtomicI64 更新 last_ping，无需 write lock
                         {
-                            let mut online = state.online_agents.write().await;
-                            if let Some(conns) = online.get_mut(&agent.id) {
-                                for conn in conns.iter_mut() {
-                                    if conn.connected_since == now_ts {
-                                        conn.last_ping = chrono::Utc::now().timestamp_millis();
+                            let online = state.online_agents.read().await;
+                            if let Some(conns) = online.get(&agent.id) {
+                                for conn in conns {
+                                    if conn.conn_id == conn_id {
+                                        conn.last_ping.store(
+                                            chrono::Utc::now().timestamp_millis(),
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        );
+                                        break;
                                     }
                                 }
                             }
@@ -670,7 +936,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
     {
         let mut online = state.online_agents.write().await;
         if let Some(conns) = online.get_mut(&agent.id) {
-            conns.retain(|c| c.connected_since != now_ts);
+            conns.retain(|c| c.conn_id != conn_id);
             if conns.is_empty() {
                 online.remove(&agent.id);
             }
@@ -686,12 +952,12 @@ pub async fn handle_ws_message(
     text: &str,
     agent: &Agent,
     state: &AppState,
-) -> Result<(), crate::error::GaggleError> {
+) -> Result<Option<WsOutgoing>, crate::error::GaggleError> {
     let ws_msg: WsIncoming = serde_json::from_str(text)
         .map_err(|e| crate::error::GaggleError::ValidationError(e.to_string()))?;
 
     match ws_msg {
-        WsIncoming::CreateSpace { payload } => {
+        WsIncoming::CreateSpace { request_id, payload } => {
             let req = crate::negotiation::CreateSpaceRequest {
                 name: payload.name,
                 invitee_ids: payload.invitee_ids.clone(),
@@ -718,9 +984,20 @@ pub async fn handle_ws_message(
             for invitee_id in &payload.invitee_ids {
                 let _ = push_event(state, invitee_id, "space_created", &broadcast_msg).await;
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space.id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::CreateRfp { payload } => {
+        WsIncoming::CreateRfp { request_id, payload } => {
             use crate::negotiation::RfpContext;
 
             let rfp_context = RfpContext {
@@ -757,20 +1034,31 @@ pub async fn handle_ws_message(
             for provider_id in &payload.provider_ids {
                 let _ = push_event(state, provider_id, "rfp_created", &broadcast_msg).await;
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space.id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::JoinSpace { payload } => {
+        WsIncoming::JoinSpace { request_id, space_id } => {
             let space = state
                 .space_manager
-                .join_space(agent, &payload.space_id)
+                .join_space(agent, &space_id)
                 .await?;
 
             let assigned_role = space.get_role(&agent.id).map(|r| r.to_string());
 
             let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceJoined {
-                space_id: payload.space_id.clone(),
+                space_id: space_id.clone(),
                 payload: SpaceJoinedPayload {
-                    space_id: payload.space_id.clone(),
+                    space_id: space_id.clone(),
                     agent_id: agent.id.clone(),
                     assigned_role,
                 },
@@ -803,9 +1091,20 @@ pub async fn handle_ws_message(
                     let _ = push_event(state, member_id, "space_status_changed", &status_msg).await;
                 }
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::SendMessage { space_id, payload } => {
+        WsIncoming::SendMessage { request_id, space_id, payload } => {
             let req = crate::negotiation::SendMessageRequest {
                 msg_type: payload.msg_type,
                 content: payload.content,
@@ -817,17 +1116,50 @@ pub async fn handle_ws_message(
                 .send_message(agent, &space_id, req)
                 .await?;
 
-            let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
-                space_id: space_id.clone(),
-                payload: NewMessagePayload { message },
-            })?;
+            let msg_id = message.id.clone();
 
-            if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
-                let _ = tx.send(broadcast_msg);
+            // Phase 7: 按 visibility 规则过滤投递
+            {
+                let sp_opt = state.space_manager.get_space(&space_id).await.ok().flatten();
+                if let Some(sp) = sp_opt {
+                    let rules = &sp.rules;
+                    let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
+                        space_id: space_id.clone(),
+                        payload: NewMessagePayload { message: message.clone() },
+                    })?;
+
+                    // 对每个 joined agent 按 visibility 规则单独投递
+                    // （不再发 broadcast channel 避免重复投递）
+                    for member_id in &sp.joined_agent_ids {
+                        if VisibilityEngine::should_deliver_message(rules, &message, member_id, &sp) {
+                            let _ = push_event(state, member_id, "new_message", &broadcast_msg).await;
+                        }
+                    }
+                } else {
+                    // fallback: 无 space 信息时走原 broadcast 逻辑
+                    let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
+                        space_id: space_id.clone(),
+                        payload: NewMessagePayload { message },
+                    })?;
+                    if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
+                        let _ = tx.send(broadcast_msg);
+                    }
+                }
+            }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: Some(msg_id),
+                    proposal_id: None,
+                    error: None,
+                }));
             }
         }
 
-        WsIncoming::SubmitProposal { payload } => {
+        WsIncoming::SubmitProposal { request_id, space_id, payload } => {
             let proposal_type = match payload.proposal_type.as_str() {
                 "counter" => ProposalType::Counter,
                 "best_and_final" => ProposalType::BestAndFinal,
@@ -842,24 +1174,36 @@ pub async fn handle_ws_message(
 
             let proposal = state
                 .space_manager
-                .submit_proposal(agent, &payload.space_id, req)
+                .submit_proposal(agent, &space_id, req)
                 .await?;
 
+            let proposal_id = proposal.id.clone();
             let broadcast_msg = serde_json::to_string(&WsOutgoing::NewProposal {
-                space_id: payload.space_id.clone(),
+                space_id: space_id.clone(),
                 payload: NewProposalPayload { proposal },
             })?;
 
             if let Some(tx) = state
                 .space_manager
-                .get_broadcast_tx(&payload.space_id)
+                .get_broadcast_tx(&space_id)
                 .await
             {
                 let _ = tx.send(broadcast_msg);
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: Some(proposal_id),
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::RespondToProposal { payload } => {
+        WsIncoming::RespondToProposal { request_id, space_id, payload } => {
             let action = match payload.action.as_str() {
                 "reject" => ProposalResponseAction::Reject,
                 "counter" => ProposalResponseAction::Counter,
@@ -867,21 +1211,23 @@ pub async fn handle_ws_message(
             };
 
             let req = crate::negotiation::RespondToProposalRequest {
-                proposal_id: payload.proposal_id,
+                proposal_id: payload.proposal_id.clone(),
                 action,
                 counter_dimensions: payload.counter_dimensions,
             };
 
             let (updated_proposal, counter_proposal) = state
                 .space_manager
-                .respond_to_proposal(agent, &payload.space_id, req)
+                .respond_to_proposal(agent, &space_id, req)
                 .await?;
+
+            let proposal_id = updated_proposal.id.clone();
 
             // 广播提案更新
             let update_msg = serde_json::to_string(&WsOutgoing::ProposalUpdate {
-                space_id: payload.space_id.clone(),
+                space_id: space_id.clone(),
                 payload: ProposalUpdatePayload {
-                    proposal_id: updated_proposal.id.clone(),
+                    proposal_id: proposal_id.clone(),
                     status: updated_proposal.status.as_str().to_string(),
                     action: "responded".to_string(),
                 },
@@ -889,7 +1235,7 @@ pub async fn handle_ws_message(
 
             if let Some(tx) = state
                 .space_manager
-                .get_broadcast_tx(&payload.space_id)
+                .get_broadcast_tx(&space_id)
                 .await
             {
                 let _ = tx.send(update_msg);
@@ -898,35 +1244,45 @@ pub async fn handle_ws_message(
             // 如果有反提案，广播新提案
             if let Some(counter) = counter_proposal {
                 let counter_msg = serde_json::to_string(&WsOutgoing::NewProposal {
-                    space_id: payload.space_id.clone(),
+                    space_id: space_id.clone(),
                     payload: NewProposalPayload { proposal: counter },
                 })?;
 
                 if let Some(tx) = state
                     .space_manager
-                    .get_broadcast_tx(&payload.space_id)
+                    .get_broadcast_tx(&space_id)
                     .await
                 {
                     let _ = tx.send(counter_msg);
                 }
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: Some(proposal_id),
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::ShareBestTerms { payload } => {
+        WsIncoming::ShareBestTerms { request_id, space_id, payload } => {
             let req = crate::negotiation::ShareBestTermsRequest {
                 best_dimensions: payload.best_dimensions,
             };
 
             let result = state
                 .space_manager
-                .share_best_terms(agent, &payload.space_id, req)
+                .share_best_terms(agent, &space_id, req)
                 .await?;
 
-            let space_id_for_msg = payload.space_id.clone();
             let broadcast_msg = serde_json::to_string(&WsOutgoing::BestTermsShared {
-                space_id: payload.space_id.clone(),
+                space_id: space_id.clone(),
                 payload: BestTermsSharedPayload {
-                    space_id: payload.space_id,
+                    space_id: space_id.clone(),
                     best_dimensions: result.best_dimensions,
                     shared_at: result.shared_at,
                 },
@@ -934,14 +1290,25 @@ pub async fn handle_ws_message(
 
             if let Some(tx) = state
                 .space_manager
-                .get_broadcast_tx(&space_id_for_msg)
+                .get_broadcast_tx(&space_id)
                 .await
             {
                 let _ = tx.send(broadcast_msg);
             }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
         }
 
-        WsIncoming::CloseSpace { space_id, payload } => {
+        WsIncoming::CloseSpace { request_id, space_id, payload } => {
             let req = crate::negotiation::CloseSpaceRequest {
                 conclusion: payload.conclusion,
                 final_terms: payload.final_terms,
@@ -961,6 +1328,17 @@ pub async fn handle_ws_message(
 
             if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
                 let _ = tx.send(broadcast_msg);
+            }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
             }
         }
 
@@ -1098,25 +1476,25 @@ pub async fn handle_ws_message(
             }
         }
 
-        WsIncoming::LeaveSpace { payload } => {
+        WsIncoming::LeaveSpace { request_id, space_id } => {
             // 获取离开前的空间状态以检测变更
             let old_space = state
                 .space_manager
-                .get_space(&payload.space_id)
+                .get_space(&space_id)
                 .await?
-                .ok_or_else(|| crate::error::GaggleError::SpaceNotFound(payload.space_id.clone()))?;
+                .ok_or_else(|| crate::error::GaggleError::SpaceNotFound(space_id.clone()))?;
 
             let space = state
                 .space_manager
-                .leave_space(agent, &payload.space_id)
+                .leave_space(agent, &space_id)
                 .await?;
 
             let status_changed = old_space.status != space.status;
 
             let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceLeft {
-                space_id: payload.space_id.clone(),
+                space_id: space_id.clone(),
                 payload: SpaceLeftPayload {
-                    space_id: payload.space_id.clone(),
+                    space_id: space_id.clone(),
                     agent_id: agent.id.clone(),
                     remaining_agents: space.agent_ids.clone(),
                     space_status: format!("{:?}", space.status).to_lowercase(),
@@ -1124,7 +1502,7 @@ pub async fn handle_ws_message(
             })?;
 
             // 广播到 space channel
-            if let Some(tx) = state.space_manager.get_broadcast_tx(&payload.space_id).await {
+            if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
                 let _ = tx.send(broadcast_msg.clone());
             }
 
@@ -1138,20 +1516,240 @@ pub async fn handle_ws_message(
             // 如果状态变为 Cancelled，广播 SpaceStatusChanged
             if status_changed && space.status == SpaceStatus::Cancelled {
                 let status_msg = serde_json::to_string(&WsOutgoing::SpaceStatusChanged {
-                    space_id: payload.space_id.clone(),
+                    space_id: space_id.clone(),
                     payload: SpaceStatusChangedPayload {
-                        space_id: payload.space_id.clone(),
+                        space_id: space_id.clone(),
                         old_status: format!("{:?}", old_space.status).to_lowercase(),
                         new_status: "cancelled".to_string(),
                     },
                 })?;
 
-                if let Some(tx) = state.space_manager.get_broadcast_tx(&payload.space_id).await {
+                if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
                     let _ = tx.send(status_msg.clone());
                 }
                 for member_id in &space.agent_ids {
                     let _ = push_event(state, member_id, "space_status_changed", &status_msg).await;
                 }
+            }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space_id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
+        }
+
+        // Need Broadcast commands
+        WsIncoming::PublishNeed { request_id, payload } => {
+            let req = crate::discovery::PublishNeedRequest {
+                title: payload.title,
+                description: payload.description,
+                category: payload.category,
+                required_skills: payload.required_skills,
+                budget_min: payload.budget_min,
+                budget_max: payload.budget_max,
+                deadline: payload.deadline,
+            };
+
+            let need = state.discovery_store.publish_need(&agent.id, req).await?;
+
+            // 匹配 Provider
+            let matched_providers = state.discovery_store.find_matching_providers(&need).await?;
+            let matched_count = matched_providers.len() as i32;
+            if matched_count > 0 {
+                let _ = state.discovery_store.update_matched_count(&need.id, matched_count).await;
+            }
+
+            let updated_need = if matched_count > 0 {
+                NeedPublishedPayload {
+                    need: crate::discovery::Need {
+                        matched_provider_count: matched_count,
+                        ..need.clone()
+                    },
+                    matched_provider_count: matched_count,
+                }
+            } else {
+                NeedPublishedPayload {
+                    need: need.clone(),
+                    matched_provider_count: 0,
+                }
+            };
+
+            // 向 creator 发送 NeedPublished
+            let published_msg = serde_json::to_string(&WsOutgoing::NeedPublished {
+                need_id: need.id.clone(),
+                payload: updated_need,
+            })?;
+            let _ = push_event(state, &agent.id, "need_published", &published_msg).await;
+
+            // 向每个匹配的 Provider 发送 NeedMatched
+            for provider in &matched_providers {
+                let matched_msg = serde_json::to_string(&WsOutgoing::NeedMatched {
+                    need_id: need.id.clone(),
+                    payload: NeedMatchedPayload {
+                        need: crate::discovery::Need {
+                            matched_provider_count: matched_count,
+                            ..need.clone()
+                        },
+                    },
+                })?;
+                let _ = push_event(state, &provider.agent_id, "need_matched", &matched_msg).await;
+            }
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: None,
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
+        }
+
+        WsIncoming::ListNeeds { payload } => {
+            let query = crate::discovery::NeedSearchQuery {
+                category: payload.category,
+                skills: payload.skills,
+                query: payload.query,
+                status: None,
+                page: payload.page,
+                page_size: payload.page_size,
+            };
+            let result = state.discovery_store.search_needs(&query).await?;
+
+            let list_msg = serde_json::to_string(&WsOutgoing::NeedsList {
+                payload: NeedsListPayload {
+                    needs: result.items,
+                    total: result.total,
+                    page: result.page,
+                    page_size: result.page_size,
+                },
+            })?;
+
+            let online = state.online_agents.read().await;
+            if let Some(conns) = online.get(&agent.id) {
+                for conn in conns {
+                    let _ = conn.tx.send(list_msg.clone());
+                }
+            }
+        }
+
+        WsIncoming::CancelNeed { request_id, need_id } => {
+            // 验证调用者是 creator
+            let need = state
+                .discovery_store
+                .get_need(&need_id)
+                .await?
+                .ok_or_else(|| {
+                    crate::error::GaggleError::NotFound(format!("Need not found: {}", need_id))
+                })?;
+
+            if need.creator_id != agent.id {
+                return Err(crate::error::GaggleError::Forbidden(
+                    "Only the creator can cancel this need".to_string(),
+                ));
+            }
+
+            state
+                .discovery_store
+                .update_need_status(&need_id, &crate::discovery::NeedStatus::Cancelled)
+                .await?;
+
+            let cancel_msg = serde_json::to_string(&WsOutgoing::NeedCancelled {
+                need_id: need_id.clone(),
+            })?;
+
+            // 通知 creator
+            let _ = push_event(state, &agent.id, "need_cancelled", &cancel_msg).await;
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: None,
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
+            }
+        }
+
+        // Phase 3: Need → RFP
+        WsIncoming::NeedToRfp { request_id, payload } => {
+            let need = state
+                .discovery_store
+                .get_need(&payload.need_id)
+                .await?
+                .ok_or_else(|| {
+                    crate::error::GaggleError::NotFound(format!(
+                        "Need not found: {}",
+                        payload.need_id
+                    ))
+                })?;
+
+            if need.creator_id != agent.id {
+                return Err(crate::error::GaggleError::Forbidden(
+                    "Only the need creator can create RFP".to_string(),
+                ));
+            }
+
+            if need.status != crate::discovery::NeedStatus::Open {
+                return Err(crate::error::GaggleError::ValidationError(
+                    format!("Need is not open (status: {:?})", need.status),
+                ));
+            }
+
+            let rfp_context = crate::negotiation::RfpContext {
+                allowed_rounds: payload.allowed_rounds,
+                evaluation_criteria: None,
+                deadline: payload.deadline,
+                share_best_terms: payload.share_best_terms,
+            };
+
+            let context = serde_json::json!({
+                "need_id": payload.need_id,
+                "title": need.title,
+                "description": need.description,
+                "category": need.category,
+                "required_skills": need.required_skills,
+                "budget_min": need.budget_min,
+                "budget_max": need.budget_max,
+            });
+
+            let create_req = crate::negotiation::CreateRfpRequest {
+                name: format!("RFP: {}", need.title),
+                provider_ids: payload.provider_ids.clone(),
+                rfp_context,
+                context,
+            };
+
+            let space = state.space_manager.create_rfp(&agent, create_req).await?;
+
+            // 更新 Need 状态
+            state
+                .discovery_store
+                .update_need_status(&payload.need_id, &crate::discovery::NeedStatus::Matched)
+                .await?;
+
+            // 广播 RFP 创建
+            broadcast_rfp_created(state, &agent, &space, &payload.provider_ids).await?;
+
+            if let Some(rid) = request_id {
+                return Ok(Some(WsOutgoing::Ack {
+                    request_id: rid,
+                    result: "ok".to_string(),
+                    space_id: Some(space.id),
+                    message_id: None,
+                    proposal_id: None,
+                    error: None,
+                }));
             }
         }
 
@@ -1200,5 +1798,181 @@ pub async fn handle_ws_message(
         }
     }
 
+    Ok(None)
+}
+
+// ── 公共广播辅助函数（REST + WS 共用） ──────────────────
+
+/// 创建 Space 后广播通知
+pub async fn broadcast_space_created(
+    state: &AppState,
+    agent: &Agent,
+    space: &crate::negotiation::Space,
+    invitee_ids: &[String],
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceCreated {
+        space_id: space.id.clone(),
+        payload: SpaceCreatedPayload {
+            space: space.clone(),
+            members: space.agent_ids.clone(),
+        },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    let _ = push_event(state, &agent.id, "space_created", &broadcast_msg).await;
+    for invitee_id in invitee_ids {
+        let _ = push_event(state, invitee_id, "space_created", &broadcast_msg).await;
+    }
+    Ok(())
+}
+
+/// 创建 RFP 后广播通知
+pub async fn broadcast_rfp_created(
+    state: &AppState,
+    agent: &Agent,
+    space: &crate::negotiation::Space,
+    provider_ids: &[String],
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::RfpCreated {
+        space_id: space.id.clone(),
+        payload: RfpCreatedPayload {
+            space: space.clone(),
+            providers: provider_ids.to_vec(),
+        },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    let _ = push_event(state, &agent.id, "rfp_created", &broadcast_msg).await;
+    for provider_id in provider_ids {
+        let _ = push_event(state, provider_id, "rfp_created", &broadcast_msg).await;
+    }
+    Ok(())
+}
+
+/// 加入 Space 后广播通知
+pub async fn broadcast_space_joined(
+    state: &AppState,
+    space: &crate::negotiation::Space,
+    agent_id: &str,
+) -> Result<(), crate::error::GaggleError> {
+    let assigned_role = space.get_role(agent_id).map(|r| r.to_string());
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceJoined {
+        space_id: space.id.clone(),
+        payload: SpaceJoinedPayload {
+            space_id: space.id.clone(),
+            agent_id: agent_id.to_string(),
+            assigned_role,
+        },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    let _ = push_event(state, agent_id, "space_joined", &broadcast_msg).await;
+
+    // 如果 space 变为 Active，广播状态变更
+    if space.status == SpaceStatus::Active {
+        let status_msg = serde_json::to_string(&WsOutgoing::SpaceStatusChanged {
+            space_id: space.id.clone(),
+            payload: SpaceStatusChangedPayload {
+                space_id: space.id.clone(),
+                old_status: "created".to_string(),
+                new_status: "active".to_string(),
+            },
+        })?;
+        if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+            let _ = tx.send(status_msg.clone());
+        }
+        for member_id in &space.agent_ids {
+            let _ = push_event(state, member_id, "space_status_changed", &status_msg).await;
+        }
+    }
+    Ok(())
+}
+
+/// Agent 离开 Space 时广播
+pub async fn broadcast_space_left(
+    state: &AppState,
+    space: &crate::negotiation::Space,
+    agent_id: &str,
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceLeft {
+        space_id: space.id.clone(),
+        payload: SpaceLeftPayload {
+            space_id: space.id.clone(),
+            agent_id: agent_id.to_string(),
+            remaining_agents: space.agent_ids.clone(),
+            space_status: space.status.as_str().to_string(),
+        },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(&space.id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    for member_id in &space.agent_ids {
+        let _ = push_event(state, member_id, "space_left", &broadcast_msg).await;
+    }
+    Ok(())
+}
+
+/// 发送消息后广播通知
+pub async fn broadcast_new_message(
+    state: &AppState,
+    space_id: &str,
+    message: &crate::negotiation::SpaceMessage,
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
+        space_id: space_id.to_string(),
+        payload: NewMessagePayload { message: message.clone() },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(space_id).await {
+        let _ = tx.send(broadcast_msg);
+    }
+    Ok(())
+}
+
+/// 提交提案后广播通知
+pub async fn broadcast_new_proposal(
+    state: &AppState,
+    space_id: &str,
+    proposal: &crate::negotiation::Proposal,
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::NewProposal {
+        space_id: space_id.to_string(),
+        payload: NewProposalPayload { proposal: proposal.clone() },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(space_id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    // 推送给 space 所有成员
+    let space = state.space_manager.get_space(space_id).await?;
+    if let Some(s) = &space {
+        for member_id in &s.agent_ids {
+            let _ = push_event(state, member_id, "new_proposal", &broadcast_msg).await;
+        }
+    }
+    Ok(())
+}
+
+/// 关闭 Space 后广播通知
+pub async fn broadcast_space_closed(
+    state: &AppState,
+    space_id: &str,
+    conclusion: &str,
+) -> Result<(), crate::error::GaggleError> {
+    let broadcast_msg = serde_json::to_string(&WsOutgoing::SpaceClosed {
+        space_id: space_id.to_string(),
+        payload: SpaceClosedPayload { conclusion: conclusion.to_string() },
+    })?;
+    if let Some(tx) = state.space_manager.get_broadcast_tx(space_id).await {
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    // 推送给所有成员
+    let space = state.space_manager.get_space(space_id).await?;
+    if let Some(s) = &space {
+        for member_id in &s.agent_ids {
+            let _ = push_event(state, member_id, "space_closed", &broadcast_msg).await;
+        }
+    }
     Ok(())
 }
