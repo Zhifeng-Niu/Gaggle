@@ -31,3 +31,8 @@ __pycache__/
 # Cline IDE
 .cline/
 __pycache__/
+
+# Project docs (private)
+docs/PROJECT*.md
+docs/PROJECT*.pdf
+docs/PROJECT*.html
