@@ -3596,6 +3596,16 @@ form.is-disabled button {
   50% { opacity: 0.3; }
 }
 
+/* Panel transitions */
+.theater-messages,
+.theater-proposals {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.panel-transitioning {
+  opacity: 0.3;
+  transform: translateY(4px);
+}
+
 /* Messages 中栏 */
 .theater-messages {
   background: var(--void);

@@ -466,6 +466,10 @@
     currentSpaceId = spaceId;
     highlightedAgentId = null;
 
+    // Fade out panels during transition
+    var panels = document.querySelectorAll('.theater-messages, .theater-proposals');
+    for (var p = 0; p < panels.length; p++) panels[p].classList.add('panel-transitioning');
+
     // Reset messages panel
     var msgList = $('messageList');
     msgList.textContent = '';
@@ -528,6 +532,11 @@
     }
 
     updateMembers();
+
+    // Fade panels back in after data loads
+    setTimeout(function () {
+      for (var p = 0; p < panels.length; p++) panels[p].classList.remove('panel-transitioning');
+    }, 150);
   }
 
   // ── Members ───────────────────────────────────────────────
