@@ -1,0 +1,47 @@
+项目轮次：2026-04-26 / 设计系统统一
+
+一、改动前情况
+1. frontend 侧已有 Landing、控制台、接入文档三类页面，但样式来源混杂在单个 style.css 中，存在重复 token、硬编码颜色和多套卡片/按钮表现并存的问题。
+2. Landing 视觉较完整，但控制台与 docs 页面在边框、圆角、阴影、按钮、字体层级上不统一，用户会感受到“像三个产品拼接在一起”。
+3. 当前项目只有接入文档页，没有单独沉淀设计系统说明，后续页面继续扩展时缺少可复用的视觉规范与 token 入口。
+4. 现有前端最近一次大改已完成中文工作台、Provider 发现、RFP 与信誉页，本轮需要在不破坏这些能力的前提下完成视觉收敛。
+
+二、本轮目标
+1. 基于现有 Landing 抽离完整设计 tokens。
+2. 统一 Landing、控制台、docs 三类前端页面的组件表现。
+3. 新增可浏览的设计系统文档页。
+4. 保留用户最近一次控制台与中文化改动，不动服务协议和业务接口逻辑。
+
+三、本轮实际修改
+1. 新增 /Users/stbz/atrrax/Gaggle_cline/frontend/design-tokens.css
+   - 抽离颜色、字体、间距、圆角、阴影、尺寸、动效、容器宽度与 safe-area token。
+   - 为旧样式保留 --bg-card / --accent / --landing-* 等兼容别名，降低回归风险。
+2. 新增 /Users/stbz/atrrax/Gaggle_cline/frontend/design-system.css
+   - 统一按钮、表单、徽标、卡片、导航、消息面板、docs 代码块、移动端底栏等组件样式。
+   - 用新的设计 token 对 Landing / Console / Docs 做统一视觉覆盖，而不是重写业务逻辑。
+3. 新增 /Users/stbz/atrrax/Gaggle_cline/frontend/design-system.html
+   - 输出设计原则、token 说明、字体层级、组件规范、布局规则和移动端约束。
+4. 更新 /Users/stbz/atrrax/Gaggle_cline/frontend/index.html 与 /Users/stbz/atrrax/Gaggle_cline/frontend/docs.html
+   - 接入 design-tokens.css 与 design-system.css。
+   - 增加“设计系统”入口，形成首页 / 文档 / 设计系统三页统一导航。
+
+四、本轮验证结果
+1. 已完成编辑器诊断检查，以下文件均无新增错误：
+   - /Users/stbz/atrrax/Gaggle_cline/frontend/index.html
+   - /Users/stbz/atrrax/Gaggle_cline/frontend/docs.html
+   - /Users/stbz/atrrax/Gaggle_cline/frontend/design-system.html
+   - /Users/stbz/atrrax/Gaggle_cline/frontend/design-tokens.css
+   - /Users/stbz/atrrax/Gaggle_cline/frontend/design-system.css
+2. 已执行脚本语法检查：
+   - node --check /Users/stbz/atrrax/Gaggle_cline/frontend/app.js
+3. 已在验证前清理端口：
+   - 8080
+   - 4173
+4. 已本地启动服务并验证：
+   - 后端：GAGGLE_DATABASE_PATH=/tmp/gaggle-ui-design-system.db cargo run
+   - 前端：python3 -m http.server 4173 --directory /Users/stbz/atrrax/Gaggle_cline/frontend
+   - 健康检查：GET http://127.0.0.1:8080/health 返回 200
+   - 页面检查：
+     * http://127.0.0.1:4173/ 返回 200
+     * http://127.0.0.1:4173/docs.html 返回 200
+     * http://127.0.0.1:4173/design-system.html 返回 200

@@ -1,0 +1,78 @@
+{
+  "color": {
+    "bg": {
+      "canvas": "#050914",
+      "canvasAlt": "#08101d",
+      "surface": "rgba(11, 18, 32, 0.88)",
+      "panel": "rgba(15, 23, 42, 0.92)",
+      "card": "rgba(17, 24, 39, 0.94)"
+    },
+    "text": {
+      "primary": "#f8fafc",
+      "secondary": "#d7dfef",
+      "tertiary": "#a8b5cb",
+      "muted": "#7f8ca6",
+      "disabled": "#5d6981"
+    },
+    "accent": {
+      "default": "#7c9cff",
+      "hover": "#95aeff",
+      "press": "#6488f2",
+      "contrast": "#eff4ff"
+    },
+    "state": {
+      "success": "#34d399",
+      "warning": "#facc15",
+      "danger": "#f87171",
+      "info": "#60a5fa"
+    }
+  },
+  "font": {
+    "display": "\"Geist\", \"Inter\", system-ui, sans-serif",
+    "sans": "\"Inter\", system-ui, sans-serif",
+    "mono": "\"Geist Mono\", \"JetBrains Mono\", monospace"
+  },
+  "radius": {
+    "xs": "8px",
+    "sm": "12px",
+    "md": "16px",
+    "lg": "20px",
+    "xl": "28px",
+    "pill": "999px"
+  },
+  "space": {
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "5": "20px",
+    "6": "24px",
+    "7": "32px",
+    "8": "40px",
+    "9": "48px",
+    "10": "56px",
+    "11": "64px",
+    "12": "80px"
+  },
+  "motion": {
+    "durationFast": "160ms",
+    "durationBase": "240ms",
+    "durationSlow": "360ms",
+    "easeStandard": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    "easeEmphasized": "cubic-bezier(0.4, 0, 0.2, 1)"
+  },
+  "breakpoint": {
+    "xs": "320px",
+    "md": "768px",
+    "lg": "1024px",
+    "xl": "1440px"
+  },
+  "grid": {
+    "mobileColumns": 4,
+    "tabletColumns": 8,
+    "desktopColumns": 12,
+    "mobileGutter": "12px",
+    "tabletGutter": "20px",
+    "desktopGutter": "24px"
+  }
+}
