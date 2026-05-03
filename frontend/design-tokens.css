@@ -1,76 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
 :root {
   color-scheme: dark;
 
-  --ds-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --ds-font-display: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --ds-font-mono: "Geist Mono", "JetBrains Mono", "SFMono-Regular", "SF Mono", Consolas, monospace;
+  /* ── Fonts ────────────────────────────────── */
+  --ds-font-mono: 'IBM Plex Mono', monospace;
+  --ds-font-sans: 'IBM Plex Sans', sans-serif;
 
-  --ds-color-bg-canvas: #050507;
-  --ds-color-bg-canvas-alt: #0a0a0f;
-  --ds-color-bg-surface: rgba(15, 15, 18, 0.88);
-  --ds-color-bg-panel: rgba(20, 20, 24, 0.92);
-  --ds-color-bg-elevated: rgba(26, 26, 30, 0.96);
-  --ds-color-bg-card: rgba(22, 22, 26, 0.94);
-  --ds-color-bg-card-hover: rgba(30, 30, 36, 0.98);
-  --ds-color-bg-soft: rgba(255, 255, 255, 0.04);
-  --ds-color-bg-soft-strong: rgba(255, 255, 255, 0.08);
-  --ds-color-bg-accent: rgba(0, 229, 255, 0.16);
-  --ds-color-bg-accent-strong: rgba(0, 229, 255, 0.24);
-  --ds-color-bg-success: rgba(52, 211, 153, 0.16);
-  --ds-color-bg-warning: rgba(250, 204, 21, 0.16);
-  --ds-color-bg-danger: rgba(248, 113, 113, 0.16);
+  /* ── Core Palette ─────────────────────────── */
+  --void: #060608;
+  --surface: #0d0d11;
+  --surface2: #13131a;
+  --surface3: #1a1a24;
 
-  --ds-color-text-primary: #ffffff;
-  --ds-color-text-secondary: #e2e2e2;
-  --ds-color-text-tertiary: #a1a1a1;
-  --ds-color-text-muted: #737373;
-  --ds-color-text-disabled: #525252;
-  --ds-color-text-inverse: #000000;
+  --protocol: #c8ff00;
+  --protocol-dim: rgba(200, 255, 0, 0.12);
+  --protocol-mid: rgba(200, 255, 0, 0.4);
 
-  --ds-color-line-subtle: rgba(255, 255, 255, 0.08);
-  --ds-color-line-default: rgba(255, 255, 255, 0.16);
-  --ds-color-line-strong: rgba(255, 255, 255, 0.24);
-  --ds-color-line-accent: rgba(0, 229, 255, 0.42);
+  --signal: #ff6b35;
+  --signal-dim: rgba(255, 107, 53, 0.10);
 
-  --ds-color-accent: #00e5ff;
-  --ds-color-accent-hover: #33ebff;
-  --ds-color-accent-press: #00b7cc;
-  --ds-color-accent-contrast: #050507;
-  --ds-color-action-disabled-bg: rgba(255, 255, 255, 0.08);
-  --ds-color-action-disabled-border: rgba(255, 255, 255, 0.12);
-  --ds-color-action-disabled-text: #525252;
-  --ds-color-violet: #a855f7;
-  --ds-color-cyan: #00e5ff;
-  --ds-color-success: #34d399;
-  --ds-color-warning: #facc15;
-  --ds-color-danger: #f87171;
-  --ds-color-info: #00e5ff;
+  /* ── Text ─────────────────────────────────── */
+  --text: rgba(255, 255, 255, 0.92);
+  --text-muted: rgba(255, 255, 255, 0.38);
+  --text-dim: rgba(255, 255, 255, 0.18);
+  --text-inverse: #060608;
 
-  --ds-gradient-bg:
-    radial-gradient(circle at top left, rgba(0, 229, 255, 0.08), transparent 28%),
-    radial-gradient(circle at top right, rgba(168, 85, 247, 0.08), transparent 26%),
-    linear-gradient(180deg, #050507 0%, #0a0a0f 55%, #050507 100%);
-  --ds-gradient-panel:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
-  --ds-gradient-accent:
-    linear-gradient(135deg, rgba(0, 229, 255, 0.96), rgba(168, 85, 247, 0.92));
-  --ds-gradient-text:
-    linear-gradient(135deg, #ffffff 0%, #e0e0e0 38%, #a0a0a0 100%);
+  /* ── Borders ──────────────────────────────── */
+  --border: rgba(255, 255, 255, 0.06);
+  --border2: rgba(255, 255, 255, 0.12);
+  --border-accent: rgba(200, 255, 0, 0.25);
 
+  /* ── Status ───────────────────────────────── */
+  --status-online: #c8ff00;
+  --status-active: #34d399;
+  --status-active-dim: rgba(52, 211, 153, 0.12);
+  --status-created: #c8ff00;
+  --status-created-dim: rgba(200, 255, 0, 0.12);
+  --status-concluded: #facc15;
+  --status-concluded-dim: rgba(250, 204, 21, 0.12);
+  --status-cancelled: #f87171;
+  --status-cancelled-dim: rgba(248, 113, 113, 0.12);
+  --status-expired: rgba(255, 255, 255, 0.18);
+  --status-expired-dim: rgba(255, 255, 255, 0.06);
+  --status-offline: rgba(255, 255, 255, 0.18);
+  --status-success: #34d399;
+  --status-warning: #facc15;
+  --status-danger: #f87171;
+  --status-info: #c8ff00;
+
+  /* ── Radius (zero or near-zero) ───────────── */
+  --ds-radius-xs: 0px;
+  --ds-radius-sm: 1px;
+  --ds-radius-md: 2px;
+  --ds-radius-lg: 2px;
+  --ds-radius-xl: 2px;
+
+  /* ── Shadows (minimal, no glow) ───────────── */
   --ds-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --ds-shadow-sm: 0 10px 30px rgba(0, 0, 0, 0.6);
-  --ds-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.7);
-  --ds-shadow-lg: 0 30px 72px rgba(0, 0, 0, 0.8);
-  --ds-shadow-glow: 0 0 0 1px rgba(0, 229, 255, 0.14), 0 22px 54px rgba(0, 229, 255, 0.18);
-  --ds-shadow-focus: 0 0 0 3px rgba(0, 229, 255, 0.2);
+  --ds-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --ds-shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --ds-shadow-focus: 0 0 0 2px rgba(200, 255, 0, 0.2);
 
-  --ds-radius-xs: 2px;
-  --ds-radius-sm: 2px;
-  --ds-radius-md: 4px;
-  --ds-radius-lg: 4px;
-  --ds-radius-xl: 4px;
-  --ds-radius-pill: 999px;
-
+  /* ── Spacing ──────────────────────────────── */
   --ds-space-0: 0;
   --ds-space-1: 4px;
   --ds-space-2: 8px;
@@ -85,13 +77,14 @@
   --ds-space-11: 64px;
   --ds-space-12: 80px;
 
+  /* ── Sizing ───────────────────────────────── */
   --ds-size-control-sm: 36px;
   --ds-size-control-md: 44px;
   --ds-size-control-lg: 52px;
   --ds-size-header: 72px;
-  --ds-size-tabbar: 76px;
   --ds-size-sidebar: 320px;
 
+  /* ── Typography ───────────────────────────── */
   --ds-text-xs: 12px;
   --ds-text-sm: 14px;
   --ds-text-md: 16px;
@@ -105,65 +98,35 @@
   --ds-line-normal: 1.55;
   --ds-line-relaxed: 1.72;
 
-  --ds-duration-fast: 160ms;
+  /* ── Motion ───────────────────────────────── */
+  --ds-duration-fast: 150ms;
   --ds-duration-base: 240ms;
   --ds-duration-slow: 360ms;
   --ds-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ds-ease-emphasized: cubic-bezier(0.4, 0, 0.2, 1);
-  --ds-ease-exit: cubic-bezier(0.4, 0, 1, 1);
 
+  /* ── Breakpoints ──────────────────────────── */
   --ds-breakpoint-xs: 320px;
   --ds-breakpoint-md: 768px;
   --ds-breakpoint-lg: 1024px;
   --ds-breakpoint-xl: 1440px;
 
-  --ds-grid-columns-mobile: 4;
-  --ds-grid-columns-tablet: 8;
-  --ds-grid-columns-desktop: 12;
-  --ds-grid-gutter-mobile: 12px;
-  --ds-grid-gutter-tablet: 20px;
-  --ds-grid-gutter-desktop: 24px;
-  --ds-grid-margin-mobile: 16px;
-  --ds-grid-margin-tablet: 24px;
-  --ds-grid-margin-desktop: 32px;
-
+  /* ── Grid ─────────────────────────────────── */
   --ds-container-page: min(1240px, calc(100% - 48px));
   --ds-container-docs: 980px;
-  --ds-safe-top: max(16px, env(safe-area-inset-top));
-  --ds-safe-right: max(16px, env(safe-area-inset-right));
-  --ds-safe-bottom: max(16px, env(safe-area-inset-bottom));
-  --ds-safe-left: max(16px, env(safe-area-inset-left));
 
-  --bg-deep: var(--ds-color-bg-canvas);
-  --bg-surface: var(--ds-color-bg-surface);
-  --bg-card: var(--ds-color-bg-card);
-  --bg-card-hover: var(--ds-color-bg-card-hover);
-  --bg-input: var(--ds-color-bg-panel);
+  /* ── Semantic Aliases (legacy compat) ─────── */
+  --bg-deep: var(--void);
+  --bg-surface: var(--surface);
+  --bg-card: var(--surface);
+  --bg-card-hover: var(--surface2);
+  --bg-input: var(--surface2);
 
-  --text-primary: var(--ds-color-text-primary);
-  --text-secondary: var(--ds-color-text-tertiary);
-  --text-muted: var(--ds-color-text-muted);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
 
-  --accent: var(--ds-color-accent);
-  --accent-light: var(--ds-color-accent-hover);
-  --accent-dim: var(--ds-color-bg-accent);
-  --violet: var(--ds-color-violet);
-  --violet-dim: rgba(167, 139, 250, 0.16);
-
-  --status-created: var(--ds-color-info);
-  --status-created-dim: rgba(96, 165, 250, 0.16);
-  --status-active: var(--ds-color-success);
-  --status-active-dim: var(--ds-color-bg-success);
-  --status-concluded: var(--ds-color-warning);
-  --status-concluded-dim: var(--ds-color-bg-warning);
-  --status-cancelled: var(--ds-color-danger);
-  --status-cancelled-dim: var(--ds-color-bg-danger);
-  --status-expired: var(--ds-color-text-muted);
-  --status-expired-dim: rgba(127, 140, 166, 0.16);
-
-  --border: var(--ds-color-line-subtle);
-  --border-light: var(--ds-color-line-default);
-  --border-accent: var(--ds-color-line-accent);
+  --accent: var(--protocol);
+  --accent-light: #d4ff33;
+  --accent-dim: var(--protocol-dim);
 
   --radius-sm: var(--ds-radius-sm);
   --radius-md: var(--ds-radius-md);
@@ -171,7 +134,6 @@
 
   --shadow-sm: var(--ds-shadow-sm);
   --shadow-md: var(--ds-shadow-md);
-  --shadow-lg: var(--ds-shadow-lg);
 
   --font-sans: var(--ds-font-sans);
   --font-mono: var(--ds-font-mono);
@@ -183,43 +145,31 @@
   --space-xl: var(--ds-space-7);
   --space-2xl: var(--ds-space-9);
 
-  --landing-bg-void: var(--ds-color-bg-canvas);
-  --landing-bg-deep: var(--ds-color-bg-canvas-alt);
-  --landing-bg-panel: var(--ds-color-bg-surface);
-  --landing-bg-elevated: var(--ds-color-bg-elevated);
-  --landing-bg-hover: var(--ds-color-bg-soft-strong);
-  --landing-text-primary: var(--ds-color-text-primary);
-  --landing-text-secondary: rgba(215, 223, 239, 0.84);
-  --landing-text-muted: rgba(168, 181, 203, 0.68);
-  --landing-text-dim: rgba(127, 140, 166, 0.42);
-  --landing-border-subtle: var(--ds-color-line-subtle);
-  --landing-border-default: var(--ds-color-line-default);
-  --landing-border-strong: var(--ds-color-line-strong);
-  --landing-border-glow: rgba(124, 156, 255, 0.32);
-  --landing-glass-bg: rgba(11, 18, 32, 0.74);
-  --landing-glass-border: rgba(148, 163, 184, 0.18);
-  --landing-glass-blur: 18px;
-  --landing-glow-primary: linear-gradient(135deg, rgba(124, 156, 255, 0.16), rgba(167, 139, 250, 0.08));
-  --landing-glow-accent: linear-gradient(135deg, rgba(124, 156, 255, 0.14), transparent);
-  --landing-glow-text: var(--ds-gradient-text);
-  --landing-glow-line: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.18), transparent);
+  /* ── Button tokens ────────────────────────── */
+  --ds-button-primary-bg: var(--protocol);
+  --ds-button-primary-text: var(--void);
+  --ds-button-secondary-bg: transparent;
+  --ds-button-secondary-text: var(--text-muted);
+  --ds-button-disabled-bg: rgba(255, 255, 255, 0.06);
+  --ds-button-disabled-text: rgba(255, 255, 255, 0.18);
 
-  --ds-button-primary-bg: var(--ds-gradient-accent);
-  --ds-button-primary-bg-hover: linear-gradient(135deg, var(--ds-color-accent-hover), #b3c4ff);
-  --ds-button-primary-bg-active: linear-gradient(135deg, var(--ds-color-accent-press), #8ba2ff);
-  --ds-button-primary-text: var(--ds-color-accent-contrast);
-  --ds-button-secondary-bg: rgba(255, 255, 255, 0.04);
-  --ds-button-secondary-bg-hover: rgba(124, 156, 255, 0.14);
-  --ds-button-secondary-bg-active: rgba(124, 156, 255, 0.2);
-  --ds-button-secondary-text: var(--ds-color-text-secondary);
-  --ds-button-disabled-bg: var(--ds-color-action-disabled-bg);
-  --ds-button-disabled-border: var(--ds-color-action-disabled-border);
-  --ds-button-disabled-text: var(--ds-color-action-disabled-text);
+  /* ── Card tokens ──────────────────────────── */
+  --ds-card-radius: var(--ds-radius-md);
+  --ds-card-border: 1px solid var(--border);
+  --ds-card-shadow: none;
 
-  --ds-card-radius: var(--ds-radius-lg);
-  --ds-card-border: 1px solid var(--ds-color-line-subtle);
-  --ds-card-shadow: var(--ds-shadow-sm);
-  --ds-card-shadow-hover: var(--ds-shadow-md);
+  /* ── Landing page (legacy compat) ─────────── */
+  --landing-bg-void: var(--void);
+  --landing-bg-deep: var(--surface);
+  --landing-bg-panel: var(--surface);
+  --landing-bg-elevated: var(--surface2);
+  --landing-bg-hover: var(--surface2);
+  --landing-text-primary: var(--text);
+  --landing-text-secondary: var(--text-muted);
+  --landing-text-muted: var(--text-muted);
+  --landing-text-dim: var(--text-dim);
+  --landing-border-subtle: var(--border);
+  --landing-border-default: var(--border2);
 }
 
 @media (max-width: 900px) {
@@ -235,6 +185,5 @@
   :root {
     --ds-container-page: min(100% - 24px, 1240px);
     --ds-size-header: 68px;
-    --ds-size-tabbar: 84px;
   }
 }

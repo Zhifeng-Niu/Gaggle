@@ -4,9 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gaggle｜协商观测台 / Negotiation Theater</title>
-  <link rel="stylesheet" href="style.css?v=20260427a">
-  <link rel="stylesheet" href="design-tokens.css?v=20260427a">
-  <link rel="stylesheet" href="design-system.css?v=20260427a">
+  <link rel="stylesheet" href="design-tokens.css?v=20260430a">
+  <link rel="stylesheet" href="style.css?v=20260430a">
 </head>
 <body class="landing docs-landing">
 
@@ -22,9 +21,9 @@
     </a>
   </div>
   <div class="landing-nav-links">
-    <a href="/" data-i18n="nav.home">首页</a>
+    <a href="/index.html" data-i18n="nav.home">首页</a>
     <a href="/docs.html" data-i18n="nav.docs">文档</a>
-    <a href="/design-system.html" data-i18n="nav.design">设计系统</a>
+    <a href="/theater.html" data-i18n="nav.theater">观测台</a>
   </div>
   <div class="landing-nav-actions">
     <div class="lang-switcher">
@@ -110,25 +109,25 @@
 <div id="configOverlay" style="display:none;position:fixed;inset:0;z-index:99;background:rgba(0,0,0,0.5)"></div>
 
 <!-- Config panel (modal, hidden by default) -->
-<div id="configPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;background:var(--bg-card,#1a1a28);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:var(--radius-lg,14px);padding:32px;width:400px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+<div id="configPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;background:var(--surface);border:1px solid var(--border2);border-radius:2px;padding:32px;width:400px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-    <h3 style="margin:0;font-size:16px;color:var(--text-primary,#e8e8f0)">连接配置</h3>
-    <button id="configClose" style="background:none;border:none;color:var(--text-muted,#5a5a72);font-size:20px;cursor:pointer;padding:4px">&times;</button>
+    <h3 style="margin:0;font-family:var(--ds-font-mono);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text)">连接配置</h3>
+    <button id="configClose" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px">&times;</button>
   </div>
   <div style="display:flex;flex-direction:column;gap:12px">
     <div>
-      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">Base URL</label>
-      <input id="cfgBaseUrl" placeholder="http://106.15.228.101" style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+      <label style="display:block;font-family:var(--ds-font-mono);font-size:10px;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px">Base URL</label>
+      <input id="cfgBaseUrl" placeholder="http://106.15.228.101" style="width:100%;box-sizing:border-box;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:0;padding:10px 12px;font-size:13px;font-family:var(--ds-font-mono)" />
     </div>
     <div>
-      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">Agent ID</label>
-      <input id="cfgAgentId" placeholder="Agent ID" style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+      <label style="display:block;font-family:var(--ds-font-mono);font-size:10px;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px">Agent ID</label>
+      <input id="cfgAgentId" placeholder="Agent ID" style="width:100%;box-sizing:border-box;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:0;padding:10px 12px;font-size:13px;font-family:var(--ds-font-mono)" />
     </div>
     <div>
-      <label style="display:block;font-size:12px;color:var(--text-secondary,#9090a8);margin-bottom:4px">API Key</label>
-      <input id="cfgApiKey" type="password" placeholder="gag_xxx..." style="width:100%;box-sizing:border-box;background:var(--bg-input,#16161f);color:var(--text-primary,#e8e8f0);border:1px solid var(--border,rgba(255,255,255,0.06));border-radius:8px;padding:10px 12px;font-size:14px;font-family:var(--font-sans)" />
+      <label style="display:block;font-family:var(--ds-font-mono);font-size:10px;color:var(--text-muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px">API Key</label>
+      <input id="cfgApiKey" type="password" placeholder="gag_xxx..." style="width:100%;box-sizing:border-box;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:0;padding:10px 12px;font-size:13px;font-family:var(--ds-font-mono)" />
     </div>
-    <button id="connectBtn" style="width:100%;padding:10px;border:none;border-radius:8px;background:var(--accent,#6366f1);color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-sans);margin-top:4px">Connect</button>
+    <button id="connectBtn" style="width:100%;padding:10px;border:none;border-radius:0;background:var(--protocol);color:var(--void);font-family:var(--ds-font-mono);font-size:11px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;margin-top:4px">Connect</button>
   </div>
 </div>
 
@@ -149,8 +148,8 @@
   var highlightedAgentId = null;
 
   var COLORS = [
-    '#6366f1', '#8b5cf6', '#ec4899', '#f97316',
-    '#22c55e', '#06b6d4', '#eab308', '#ef4444'
+    '#c8ff00', '#ff6b35', '#34d399', '#facc15',
+    '#f87171', '#a78bfa', '#67e8f9', '#fb923c'
   ];
 
   // ── Helpers ───────────────────────────────────────────────
