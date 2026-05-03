@@ -38,6 +38,22 @@ pub struct SendMessagePayload {
     pub content: String,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// 可选：内联提案维度。附带时同时创建 Message + Proposal 记录。
+    #[serde(default)]
+    pub proposal: Option<InlineProposal>,
+}
+
+/// 内联提案 — 嵌入 SendMessagePayload 中，一条消息同时携带结构化提案。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InlineProposal {
+    /// "initial" | "counter" | "best_and_final"，默认 "initial"
+    #[serde(default)]
+    pub proposal_type: Option<String>,
+    /// 多维度报价
+    pub dimensions: ProposalDimensions,
+    /// 反提案时引用原提案 ID
+    #[serde(default)]
+    pub parent_proposal_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,6 +300,9 @@ pub struct SpaceJoinedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewMessagePayload {
     pub message: crate::negotiation::SpaceMessage,
+    /// 如果消息关联了提案，此处附带提案详情
+    #[serde(default)]
+    pub proposal: Option<crate::negotiation::Proposal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1106,7 +1125,7 @@ pub async fn handle_ws_message(
 
         WsIncoming::SendMessage { request_id, space_id, payload } => {
             let req = crate::negotiation::SendMessageRequest {
-                msg_type: payload.msg_type,
+                msg_type: payload.msg_type.clone(),
                 content: payload.content,
                 metadata: payload.metadata,
             };
@@ -1117,6 +1136,48 @@ pub async fn handle_ws_message(
                 .await?;
 
             let msg_id = message.id.clone();
+            let mut proposal_obj: Option<crate::negotiation::Proposal> = None;
+            let mut proposal_id_for_ack: Option<String> = None;
+
+            // ── 内联提案：如果 payload.proposal 存在，同时创建 Proposal 记录 ──
+            if let Some(inline) = payload.proposal {
+                let ptype = match inline.proposal_type.as_deref() {
+                    Some("counter") => ProposalType::Counter,
+                    Some("best_and_final") => ProposalType::BestAndFinal,
+                    _ => ProposalType::Initial,
+                };
+                let prop_req = crate::negotiation::SubmitProposalRequest {
+                    proposal_type: ptype,
+                    dimensions: inline.dimensions,
+                    parent_proposal_id: inline.parent_proposal_id,
+                };
+                let proposal = state
+                    .space_manager
+                    .submit_proposal(agent, &space_id, prop_req)
+                    .await?;
+                proposal_id_for_ack = Some(proposal.id.clone());
+                proposal_obj = Some(proposal);
+            }
+
+            // ── Acceptance / Rejection：自动更新关联 Proposal 状态 ──
+            if matches!(payload.msg_type, MessageType::Acceptance | MessageType::Rejection) {
+                if let Some(ref meta) = message.metadata {
+                    if let Some(pid) = meta.get("proposal_id").and_then(|v| v.as_str()) {
+                        let action = if matches!(payload.msg_type, MessageType::Acceptance) {
+                            ProposalResponseAction::Accept
+                        } else {
+                            ProposalResponseAction::Reject
+                        };
+                        let resp_req = crate::negotiation::RespondToProposalRequest {
+                            proposal_id: pid.to_string(),
+                            action,
+                            counter_dimensions: None,
+                        };
+                        // 忽略错误 — 提案可能已被处理
+                        let _ = state.space_manager.respond_to_proposal(agent, &space_id, resp_req).await;
+                    }
+                }
+            }
 
             // Phase 7: 按 visibility 规则过滤投递
             {
@@ -1125,11 +1186,13 @@ pub async fn handle_ws_message(
                     let rules = &sp.rules;
                     let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
                         space_id: space_id.clone(),
-                        payload: NewMessagePayload { message: message.clone() },
+                        payload: NewMessagePayload {
+                            message: message.clone(),
+                            proposal: proposal_obj.clone(),
+                        },
                     })?;
 
                     // 对每个 joined agent 按 visibility 规则单独投递
-                    // （不再发 broadcast channel 避免重复投递）
                     for member_id in &sp.joined_agent_ids {
                         if VisibilityEngine::should_deliver_message(rules, &message, member_id, &sp) {
                             let _ = push_event(state, member_id, "new_message", &broadcast_msg).await;
@@ -1139,10 +1202,35 @@ pub async fn handle_ws_message(
                     // fallback: 无 space 信息时走原 broadcast 逻辑
                     let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
                         space_id: space_id.clone(),
-                        payload: NewMessagePayload { message },
+                        payload: NewMessagePayload {
+                            message,
+                            proposal: proposal_obj.clone(),
+                        },
                     })?;
                     if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
                         let _ = tx.send(broadcast_msg);
+                    }
+                }
+            }
+
+            // 向后兼容：如果有内联提案，也广播 NewProposal 事件
+            if let Some(ref proposal) = proposal_obj {
+                let prop_broadcast = serde_json::to_string(&WsOutgoing::NewProposal {
+                    space_id: space_id.clone(),
+                    payload: NewProposalPayload { proposal: proposal.clone() },
+                })?;
+                if let Some(tx) = state.space_manager.get_broadcast_tx(&space_id).await {
+                    let _ = tx.send(prop_broadcast);
+                }
+                // 也 push_event 给所有 space 成员
+                if let Ok(Some(sp)) = state.space_manager.get_space(&space_id).await {
+                    for member_id in &sp.agent_ids {
+                        let _ = push_event(state, member_id, "new_proposal", &serde_json::to_string(
+                            &WsOutgoing::NewProposal {
+                                space_id: space_id.clone(),
+                                payload: NewProposalPayload { proposal: proposal.clone() },
+                            },
+                        )?).await;
                     }
                 }
             }
@@ -1153,7 +1241,7 @@ pub async fn handle_ws_message(
                     result: "ok".to_string(),
                     space_id: Some(space_id),
                     message_id: Some(msg_id),
-                    proposal_id: None,
+                    proposal_id: proposal_id_for_ack,
                     error: None,
                 }));
             }
@@ -1921,12 +2009,31 @@ pub async fn broadcast_new_message(
     space_id: &str,
     message: &crate::negotiation::SpaceMessage,
 ) -> Result<(), crate::error::GaggleError> {
+    broadcast_new_message_with_proposal(state, space_id, message, None).await
+}
+
+/// 广播新消息（可附带提案信息）
+pub async fn broadcast_new_message_with_proposal(
+    state: &AppState,
+    space_id: &str,
+    message: &crate::negotiation::SpaceMessage,
+    proposal: Option<&crate::negotiation::Proposal>,
+) -> Result<(), crate::error::GaggleError> {
     let broadcast_msg = serde_json::to_string(&WsOutgoing::NewMessage {
         space_id: space_id.to_string(),
-        payload: NewMessagePayload { message: message.clone() },
+        payload: NewMessagePayload {
+            message: message.clone(),
+            proposal: proposal.cloned(),
+        },
     })?;
     if let Some(tx) = state.space_manager.get_broadcast_tx(space_id).await {
-        let _ = tx.send(broadcast_msg);
+        let _ = tx.send(broadcast_msg.clone());
+    }
+    // 通过 personal channel 推送给所有成员（确保 REST 创建的 space 也能送达）
+    if let Ok(Some(space)) = state.space_manager.get_space(space_id).await {
+        for member_id in &space.agent_ids {
+            let _ = push_event(state, member_id, "new_message", &broadcast_msg).await;
+        }
     }
     Ok(())
 }

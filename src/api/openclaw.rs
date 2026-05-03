@@ -349,6 +349,7 @@ async fn handle_openclaw_message(
                     msg_type: mt,
                     content,
                     metadata,
+                    proposal: None,
                 },
             }
         }

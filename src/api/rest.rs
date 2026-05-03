@@ -1166,6 +1166,9 @@ pub struct RestSendMessageRequest {
     pub content: String,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// 可选：内联提案维度，附带时同时创建 Message + Proposal
+    #[serde(default)]
+    pub proposal: Option<super::ws::InlineProposal>,
 }
 
 /// 将字符串消息类型解析为 Gaggle MessageType
@@ -1192,12 +1195,55 @@ pub async fn rest_send_message(
     let agent = extract_agent(&state, &headers).await?;
     let msg_type = parse_msg_type(req.msg_type.as_deref().unwrap_or("text"));
     let send_req = crate::negotiation::SendMessageRequest {
-        msg_type,
+        msg_type: msg_type.clone(),
         content: req.content,
         metadata: req.metadata,
     };
     let message = state.space_manager.send_message(&agent, &space_id, send_req).await?;
-    super::ws::broadcast_new_message(&state, &space_id, &message).await?;
+
+    // 内联提案处理
+    let mut proposal_obj: Option<crate::negotiation::Proposal> = None;
+    if let Some(inline) = req.proposal {
+        let ptype = match inline.proposal_type.as_deref() {
+            Some("counter") => crate::negotiation::ProposalType::Counter,
+            Some("best_and_final") => crate::negotiation::ProposalType::BestAndFinal,
+            _ => crate::negotiation::ProposalType::Initial,
+        };
+        let prop_req = crate::negotiation::SubmitProposalRequest {
+            proposal_type: ptype,
+            dimensions: inline.dimensions,
+            parent_proposal_id: inline.parent_proposal_id,
+        };
+        let proposal = state.space_manager.submit_proposal(&agent, &space_id, prop_req).await?;
+        proposal_obj = Some(proposal);
+    }
+
+    // Acceptance / Rejection 自动更新关联 Proposal
+    if matches!(msg_type, crate::negotiation::MessageType::Acceptance | crate::negotiation::MessageType::Rejection) {
+        if let Some(ref meta) = message.metadata {
+            if let Some(pid) = meta.get("proposal_id").and_then(|v| v.as_str()) {
+                let action = if matches!(msg_type, crate::negotiation::MessageType::Acceptance) {
+                    crate::negotiation::ProposalResponseAction::Accept
+                } else {
+                    crate::negotiation::ProposalResponseAction::Reject
+                };
+                let resp_req = crate::negotiation::RespondToProposalRequest {
+                    proposal_id: pid.to_string(),
+                    action,
+                    counter_dimensions: None,
+                };
+                let _ = state.space_manager.respond_to_proposal(&agent, &space_id, resp_req).await;
+            }
+        }
+    }
+
+    super::ws::broadcast_new_message_with_proposal(&state, &space_id, &message, proposal_obj.as_ref()).await?;
+
+    // 向后兼容：广播 NewProposal
+    if let Some(ref proposal) = proposal_obj {
+        super::ws::broadcast_new_proposal(&state, &space_id, proposal).await?;
+    }
+
     Ok(Json(serde_json::to_value(&message)?))
 }
 
