@@ -562,6 +562,138 @@ class Agent:
             category, service_type, price, **kwargs
         )
 
+    # -- Phase 9: Rules Management --
+
+    async def get_rules(self, space_id: str) -> dict:
+        """Get current rules for a space."""
+        return await self._client.get_rules(space_id)
+
+    async def update_rules(self, space_id: str, overrides: dict) -> dict:
+        """Update space rules."""
+        return await self._client.update_rules(space_id, overrides)
+
+    async def get_rule_transitions(self, space_id: str) -> dict:
+        """Get rule evolution plan."""
+        return await self._client.get_rule_transitions(space_id)
+
+    # -- Phase 9: SubSpaces --
+
+    async def create_subspace(
+        self, space_id: str, name: str, **kwargs
+    ) -> dict:
+        """Create a sub-space."""
+        return await self._client.create_subspace(space_id, name, **kwargs)
+
+    async def list_subspaces(self, space_id: str) -> list:
+        """List sub-spaces."""
+        return await self._client.list_subspaces(space_id)
+
+    async def get_subspace(self, sub_space_id: str) -> dict:
+        """Get sub-space details."""
+        return await self._client.get_subspace(sub_space_id)
+
+    async def send_subspace_message(
+        self, sub_space_id: str, content: str, **kwargs
+    ) -> dict:
+        """Send message to sub-space."""
+        return await self._client.send_subspace_message(sub_space_id, content, **kwargs)
+
+    async def get_subspace_messages(self, sub_space_id: str, **kwargs) -> list:
+        """Get sub-space messages."""
+        return await self._client.get_subspace_messages(sub_space_id, **kwargs)
+
+    async def submit_subspace_proposal(
+        self, sub_space_id: str, proposal_type: str, dimensions: dict, **kwargs
+    ) -> dict:
+        """Submit proposal to sub-space."""
+        return await self._client.submit_subspace_proposal(
+            sub_space_id, proposal_type, dimensions, **kwargs
+        )
+
+    async def get_subspace_proposals(self, sub_space_id: str) -> list:
+        """Get sub-space proposals."""
+        return await self._client.get_subspace_proposals(sub_space_id)
+
+    async def close_subspace(self, sub_space_id: str, **kwargs) -> dict:
+        """Close a sub-space."""
+        return await self._client.close_subspace(sub_space_id, **kwargs)
+
+    # -- Phase 10: Coalitions --
+
+    async def create_coalition(self, space_id: str, name: str, **kwargs) -> dict:
+        """Create a coalition."""
+        return await self._client.create_coalition(space_id, name, **kwargs)
+
+    async def list_coalitions(self, space_id: str) -> list:
+        """List coalitions in a space."""
+        return await self._client.list_coalitions(space_id)
+
+    async def get_coalition(self, coalition_id: str) -> dict:
+        """Get coalition details."""
+        return await self._client.get_coalition(coalition_id)
+
+    async def join_coalition(self, coalition_id: str) -> dict:
+        """Join a coalition."""
+        return await self._client.join_coalition(coalition_id)
+
+    async def leave_coalition(self, coalition_id: str) -> dict:
+        """Leave a coalition."""
+        return await self._client.leave_coalition(coalition_id)
+
+    async def update_coalition_stance(
+        self, coalition_id: str, stance: str
+    ) -> dict:
+        """Update coalition stance."""
+        return await self._client.update_coalition_stance(coalition_id, stance)
+
+    async def disband_coalition(self, coalition_id: str) -> dict:
+        """Disband a coalition."""
+        return await self._client.disband_coalition(coalition_id)
+
+    # -- Phase 11: Delegations --
+
+    async def create_delegation(
+        self, space_id: str, delegate_id: str, scope: str, **kwargs
+    ) -> dict:
+        """Delegate authority to another agent."""
+        return await self._client.create_delegation(space_id, delegate_id, scope, **kwargs)
+
+    async def list_delegations(self, space_id: str) -> list:
+        """List delegations in a space."""
+        return await self._client.list_delegations(space_id)
+
+    async def revoke_delegation(self, delegation_id: str) -> dict:
+        """Revoke a delegation."""
+        return await self._client.revoke_delegation(delegation_id)
+
+    async def list_agent_delegations(self, agent_id: str) -> list:
+        """List all delegations for an agent."""
+        return await self._client.list_agent_delegations(agent_id)
+
+    # -- Phase 12: Recruitment --
+
+    async def create_recruitment(
+        self, space_id: str, target_id: str, **kwargs
+    ) -> dict:
+        """Recruit an agent to a space."""
+        return await self._client.create_recruitment(space_id, target_id, **kwargs)
+
+    async def accept_recruitment(
+        self, space_id: str, recruitment_id: str
+    ) -> dict:
+        """Accept a recruitment invitation."""
+        return await self._client.accept_recruitment(space_id, recruitment_id)
+
+    async def reject_recruitment(
+        self, space_id: str, recruitment_id: str
+    ) -> dict:
+        """Reject a recruitment invitation."""
+        return await self._client.reject_recruitment(space_id, recruitment_id)
+
+    async def list_recruitments(self, space_id: str) -> list:
+        """List recruitments for a space."""
+        return await self._client.list_recruitments(space_id)
+
     # -- Lifecycle --
 
     async def run_async(self):

@@ -1225,3 +1225,389 @@ class GaggleClient:
         """获取分类的最近价格贡献。无需认证。"""
         response = await self._request("GET", f"/api/v1/market/{category}/contributions")
         return [MarketContribution(**c) for c in response]
+
+    # ==================== Phase 9: Rules Management APIs ====================
+
+    async def get_rules(self, space_id: str) -> dict:
+        """Get current rules for a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            Space rules dict
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/rules")
+
+    async def update_rules(self, space_id: str, overrides: dict) -> dict:
+        """Update space rules. Requires can_change_rules permission.
+
+        Args:
+            space_id: Space ID
+            overrides: Rule overrides dict (e.g., visibility, reveal_mode)
+
+        Returns:
+            Updated rules dict
+        """
+        return await self._request("PUT", f"/api/v1/spaces/{space_id}/rules", json=overrides)
+
+    async def get_rule_transitions(self, space_id: str) -> dict:
+        """Get rule evolution plan for a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            Rule transitions dict
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/rules/transitions")
+
+    # ==================== Phase 9: SubSpace APIs ====================
+
+    async def create_subspace(
+        self,
+        space_id: str,
+        name: str,
+        context: dict | None = None,
+        member_ids: list[str] | None = None,
+    ) -> dict:
+        """Create a sub-space within a parent space.
+
+        Args:
+            space_id: Parent space ID
+            name: Sub-space name
+            context: Optional context data
+            member_ids: Optional member IDs to include
+
+        Returns:
+            Created sub-space data
+        """
+        data: dict = {"name": name}
+        if context is not None:
+            data["context"] = context
+        if member_ids is not None:
+            data["member_ids"] = member_ids
+        return await self._request("POST", f"/api/v1/spaces/{space_id}/subspaces", json=data)
+
+    async def list_subspaces(self, space_id: str) -> list[dict]:
+        """List all sub-spaces of a parent space.
+
+        Args:
+            space_id: Parent space ID
+
+        Returns:
+            List of sub-spaces
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/subspaces")
+
+    async def get_subspace(self, sub_space_id: str) -> dict:
+        """Get sub-space details.
+
+        Args:
+            sub_space_id: Sub-space ID
+
+        Returns:
+            Sub-space details
+        """
+        return await self._request("GET", f"/api/v1/subspaces/{sub_space_id}")
+
+    async def send_subspace_message(
+        self, sub_space_id: str, content: str, msg_type: str = "text"
+    ) -> dict:
+        """Send a message to a sub-space.
+
+        Args:
+            sub_space_id: Sub-space ID
+            content: Message content
+            msg_type: Message type (default: "text")
+
+        Returns:
+            Sent message data
+        """
+        data = {"content": content, "msg_type": msg_type}
+        return await self._request("POST", f"/api/v1/subspaces/{sub_space_id}/messages", json=data)
+
+    async def get_subspace_messages(
+        self, sub_space_id: str, limit: int = 200
+    ) -> list[dict]:
+        """Get messages from a sub-space.
+
+        Args:
+            sub_space_id: Sub-space ID
+            limit: Max messages to return
+
+        Returns:
+            List of messages
+        """
+        return await self._request(
+            "GET", f"/api/v1/subspaces/{sub_space_id}/messages", params={"limit": limit}
+        )
+
+    async def submit_subspace_proposal(
+        self,
+        sub_space_id: str,
+        proposal_type: str,
+        dimensions: dict,
+        parent_proposal_id: str | None = None,
+    ) -> dict:
+        """Submit a proposal to a sub-space.
+
+        Args:
+            sub_space_id: Sub-space ID
+            proposal_type: Proposal type
+            dimensions: Proposal dimensions
+            parent_proposal_id: Optional parent proposal ID
+
+        Returns:
+            Created proposal data
+        """
+        data: dict = {"proposal_type": proposal_type, "dimensions": dimensions}
+        if parent_proposal_id is not None:
+            data["parent_proposal_id"] = parent_proposal_id
+        return await self._request(
+            "POST", f"/api/v1/subspaces/{sub_space_id}/proposals", json=data
+        )
+
+    async def get_subspace_proposals(self, sub_space_id: str) -> list[dict]:
+        """Get proposals from a sub-space.
+
+        Args:
+            sub_space_id: Sub-space ID
+
+        Returns:
+            List of proposals
+        """
+        return await self._request("GET", f"/api/v1/subspaces/{sub_space_id}/proposals")
+
+    async def close_subspace(self, sub_space_id: str, conclusion: str = "concluded") -> dict:
+        """Close a sub-space.
+
+        Args:
+            sub_space_id: Sub-space ID
+            conclusion: Conclusion reason ("concluded" or "cancelled")
+
+        Returns:
+            Closed sub-space data
+        """
+        data = {"conclusion": conclusion}
+        return await self._request("POST", f"/api/v1/subspaces/{sub_space_id}/close", json=data)
+
+    # ==================== Phase 10: Coalition APIs ====================
+
+    async def create_coalition(
+        self,
+        space_id: str,
+        name: str,
+        member_ids: list[str] | None = None,
+        stance: str | None = None,
+    ) -> dict:
+        """Create a coalition within a space.
+
+        Args:
+            space_id: Space ID
+            name: Coalition name
+            member_ids: Optional founding member IDs
+            stance: Optional coalition stance
+
+        Returns:
+            Created coalition data
+        """
+        data: dict = {"name": name}
+        if member_ids is not None:
+            data["member_ids"] = member_ids
+        if stance is not None:
+            data["stance"] = stance
+        return await self._request("POST", f"/api/v1/spaces/{space_id}/coalitions", json=data)
+
+    async def list_coalitions(self, space_id: str) -> list[dict]:
+        """List all coalitions in a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            List of coalitions
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/coalitions")
+
+    async def get_coalition(self, coalition_id: str) -> dict:
+        """Get coalition details.
+
+        Args:
+            coalition_id: Coalition ID
+
+        Returns:
+            Coalition details
+        """
+        return await self._request("GET", f"/api/v1/coalitions/{coalition_id}")
+
+    async def join_coalition(self, coalition_id: str) -> dict:
+        """Join a coalition.
+
+        Args:
+            coalition_id: Coalition ID
+
+        Returns:
+            Updated coalition data
+        """
+        return await self._request("POST", f"/api/v1/coalitions/{coalition_id}/join")
+
+    async def leave_coalition(self, coalition_id: str) -> dict:
+        """Leave a coalition.
+
+        Args:
+            coalition_id: Coalition ID
+
+        Returns:
+            Updated coalition data
+        """
+        return await self._request("POST", f"/api/v1/coalitions/{coalition_id}/leave")
+
+    async def update_coalition_stance(self, coalition_id: str, stance: str) -> dict:
+        """Update coalition stance.
+
+        Args:
+            coalition_id: Coalition ID
+            stance: New stance
+
+        Returns:
+            Updated coalition data
+        """
+        return await self._request(
+            "PUT", f"/api/v1/coalitions/{coalition_id}/stance", json={"stance": stance}
+        )
+
+    async def disband_coalition(self, coalition_id: str) -> dict:
+        """Disband a coalition.
+
+        Args:
+            coalition_id: Coalition ID
+
+        Returns:
+            Disband confirmation
+        """
+        return await self._request("POST", f"/api/v1/coalitions/{coalition_id}/disband")
+
+    # ==================== Phase 11: Delegation APIs ====================
+
+    async def create_delegation(
+        self,
+        space_id: str,
+        delegate_id: str,
+        scope: str,
+        expires_at: int | None = None,
+    ) -> dict:
+        """Delegate authority to another agent in a space.
+
+        Args:
+            space_id: Space ID
+            delegate_id: Agent ID to delegate to
+            scope: Delegation scope (e.g., "vote", "propose", "full")
+            expires_at: Optional Unix timestamp for expiry
+
+        Returns:
+            Created delegation data
+        """
+        data: dict = {"delegate_id": delegate_id, "scope": scope}
+        if expires_at is not None:
+            data["expires_at"] = expires_at
+        return await self._request("POST", f"/api/v1/spaces/{space_id}/delegations", json=data)
+
+    async def list_delegations(self, space_id: str) -> list[dict]:
+        """List all delegations in a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            List of delegations
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/delegations")
+
+    async def revoke_delegation(self, delegation_id: str) -> dict:
+        """Revoke a delegation.
+
+        Args:
+            delegation_id: Delegation ID
+
+        Returns:
+            Revocation confirmation
+        """
+        return await self._request("DELETE", f"/api/v1/delegations/{delegation_id}")
+
+    async def list_agent_delegations(self, agent_id: str) -> list[dict]:
+        """List all delegations for an agent.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            List of delegations
+        """
+        return await self._request("GET", f"/api/v1/agents/{agent_id}/delegations")
+
+    # ==================== Phase 12: Recruitment APIs ====================
+
+    async def create_recruitment(
+        self,
+        space_id: str,
+        target_id: str,
+        role: str | None = None,
+        pitch: str | None = None,
+    ) -> dict:
+        """Recruit an agent to a space.
+
+        Args:
+            space_id: Space ID
+            target_id: Target agent ID
+            role: Optional role to offer
+            pitch: Optional recruitment pitch
+
+        Returns:
+            Created recruitment data
+        """
+        data: dict = {"target_id": target_id}
+        if role is not None:
+            data["role"] = role
+        if pitch is not None:
+            data["pitch"] = pitch
+        return await self._request("POST", f"/api/v1/spaces/{space_id}/recruit", json=data)
+
+    async def accept_recruitment(self, space_id: str, recruitment_id: str) -> dict:
+        """Accept a recruitment invitation.
+
+        Args:
+            space_id: Space ID
+            recruitment_id: Recruitment ID
+
+        Returns:
+            Acceptance confirmation
+        """
+        return await self._request(
+            "POST", f"/api/v1/spaces/{space_id}/recruit/{recruitment_id}/accept"
+        )
+
+    async def reject_recruitment(self, space_id: str, recruitment_id: str) -> dict:
+        """Reject a recruitment invitation.
+
+        Args:
+            space_id: Space ID
+            recruitment_id: Recruitment ID
+
+        Returns:
+            Rejection confirmation
+        """
+        return await self._request(
+            "POST", f"/api/v1/spaces/{space_id}/recruit/{recruitment_id}/reject"
+        )
+
+    async def list_recruitments(self, space_id: str) -> list[dict]:
+        """List all recruitments for a space.
+
+        Args:
+            space_id: Space ID
+
+        Returns:
+            List of recruitments
+        """
+        return await self._request("GET", f"/api/v1/spaces/{space_id}/recruitments")
