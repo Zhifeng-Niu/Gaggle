@@ -103,13 +103,20 @@
     <span class="rule-tag" id="ruleRound">--</span>
     <span class="rule-tag" id="ruleParticipants">--</span>
   </div>
+
+  <!-- Mobile bottom tabs (hidden on desktop) -->
+  <nav class="theater-bottom-tabs" id="bottomTabs">
+    <button class="tab-btn active" data-tab="messages" data-i18n="theater.messages">消息</button>
+    <button class="tab-btn" data-tab="members" data-i18n="theater.members">成员</button>
+    <button class="tab-btn" data-tab="proposals" data-i18n="theater.proposals">提案</button>
+  </nav>
 </div>
 
 <!-- Config panel overlay -->
 <div id="configOverlay" style="display:none;position:fixed;inset:0;z-index:99;background:rgba(0,0,0,0.5)"></div>
 
-<!-- Config panel (modal, hidden by default) -->
-<div id="configPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;background:var(--surface);border:1px solid var(--border2);border-radius:2px;padding:32px;width:400px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+<!-- Config panel (modal / bottom sheet, hidden by default) -->
+<div id="configPanel" class="config-panel">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
     <h3 style="margin:0;font-family:var(--ds-font-mono);font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text)">连接配置</h3>
     <button id="configClose" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px">&times;</button>
@@ -198,15 +205,64 @@
     if (empty) empty.remove();
   }
 
+  // ── Mobile bottom tabs ────────────────────────────────────
+
+  function switchTab(tabName) {
+    var tabs = document.querySelectorAll('.theater-bottom-tabs .tab-btn');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle('active', tabs[i].dataset.tab === tabName);
+    }
+    var members = document.querySelector('.theater-members');
+    var messages = document.querySelector('.theater-messages');
+    var proposals = document.querySelector('.theater-proposals');
+    if (window.innerWidth <= 768) {
+      members.style.display = tabName === 'members' ? '' : 'none';
+      messages.style.display = tabName === 'messages' ? '' : 'none';
+      proposals.style.display = tabName === 'proposals' ? '' : 'none';
+    }
+  }
+
+  document.getElementById('bottomTabs').addEventListener('click', function (e) {
+    var btn = e.target.closest('.tab-btn');
+    if (btn && btn.dataset.tab) switchTab(btn.dataset.tab);
+  });
+
+  window.addEventListener('resize', function () {
+    var members = document.querySelector('.theater-members');
+    var messages = document.querySelector('.theater-messages');
+    var proposals = document.querySelector('.theater-proposals');
+    if (window.innerWidth > 768) {
+      members.style.display = '';
+      messages.style.display = '';
+      proposals.style.display = '';
+    } else {
+      var active = document.querySelector('.tab-btn.active');
+      switchTab(active ? active.dataset.tab : 'messages');
+    }
+  });
+
   // ── Config panel ──────────────────────────────────────────
 
   function showConfig() {
-    $('configPanel').style.display = 'block';
+    var panel = $('configPanel');
+    panel.style.display = 'block';
     $('configOverlay').style.display = 'block';
+    // Bottom sheet animation on mobile
+    if (window.innerWidth <= 768) {
+      panel.offsetHeight; // force reflow
+      panel.classList.add('sheet-open');
+    }
   }
 
   function hideConfig() {
-    $('configPanel').style.display = 'none';
+    var panel = $('configPanel');
+    panel.classList.remove('sheet-open');
+    // Wait for transition on mobile, hide immediately on desktop
+    if (window.innerWidth <= 768) {
+      setTimeout(function () { panel.style.display = 'none'; }, 300);
+    } else {
+      panel.style.display = 'none';
+    }
     $('configOverlay').style.display = 'none';
   }
 

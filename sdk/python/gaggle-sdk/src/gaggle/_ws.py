@@ -378,6 +378,7 @@ class WSConnectionManager:
         *,
         msg_type: str = "text",
         metadata: dict[str, Any] | None = None,
+        proposal: dict[str, Any] | None = None,
         request_id: str | None = None,
     ):
         """Send a message to a space via WebSocket.
@@ -387,11 +388,16 @@ class WSConnectionManager:
             content: Message content.
             msg_type: Message type (e.g., "text", "structured"). Default: "text".
             metadata: Optional metadata dictionary.
+            proposal: Optional inline proposal dict with keys:
+                proposal_type (str), dimensions (dict), parent_proposal_id (str).
+                When provided, creates a Message + Proposal in one operation.
             request_id: Optional request ID.
         """
         payload: dict[str, Any] = {"msg_type": msg_type, "content": content}
         if metadata is not None:
             payload["metadata"] = metadata
+        if proposal is not None:
+            payload["proposal"] = proposal
 
         await self._send_with_request_id(
             {"type": "send_message", "space_id": space_id, "payload": payload}, request_id
