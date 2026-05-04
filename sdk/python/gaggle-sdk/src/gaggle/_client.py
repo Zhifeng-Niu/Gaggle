@@ -1,5 +1,7 @@
 """Gaggle REST API client - async HTTP client with full API coverage."""
 
+import asyncio
+
 import httpx
 from typing import Any
 
@@ -85,6 +87,7 @@ class GaggleClient:
         api_key: str,
         base_url: str = "http://106.15.228.101:8080",
         timeout: float = 10.0,
+        max_retries: int = 3,
     ):
         """Initialize the client.
 
@@ -92,10 +95,12 @@ class GaggleClient:
             api_key: API key for authentication (gag_* for agents, usr_* for users)
             base_url: Base URL of the Gaggle server
             timeout: Request timeout in seconds
+            max_retries: Max retry attempts for transient errors (502/503/504/connect)
         """
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self._max_retries = max_retries
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "GaggleClient":
@@ -129,7 +134,10 @@ class GaggleClient:
         path: str,
         **kwargs: Any,
     ) -> Any:
-        """Make HTTP request with error handling.
+        """Make HTTP request with error handling and automatic retries.
+
+        Retries on transient errors: 502, 503, 504, and connection failures.
+        Uses exponential backoff: 0.5s, 1s, 2s.
 
         Args:
             method: HTTP method
@@ -143,26 +151,45 @@ class GaggleClient:
             GaggleError: On API errors
         """
         client = self._ensure_client()
+        backoff_times = [0.5, 1.0, 2.0]
+        last_exception: Exception | None = None
 
-        try:
-            response = await client.request(method, path, **kwargs)
-        except httpx.ConnectError as e:
-            raise GaggleConnectionError(f"Connection failed: {e}") from e
-        except httpx.TimeoutException as e:
-            raise GaggleError(f"Request timeout: {e}") from e
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = await client.request(method, path, **kwargs)
+            except httpx.ConnectError as e:
+                last_exception = e
+                if attempt < self._max_retries:
+                    await asyncio.sleep(backoff_times[min(attempt, len(backoff_times) - 1)])
+                    continue
+                raise GaggleConnectionError(
+                    f"Connection failed after {self._max_retries + 1} attempts: {e}"
+                ) from e
+            except httpx.TimeoutException as e:
+                raise GaggleError(f"Request timeout: {e}") from e
 
-        # Try to parse error response
-        response_data: dict | None = None
-        try:
+            # Retry on transient server errors
+            if response.status_code in (502, 503, 504) and attempt < self._max_retries:
+                await asyncio.sleep(backoff_times[min(attempt, len(backoff_times) - 1)])
+                continue
+
+            # Try to parse error response
+            response_data: dict | None = None
+            try:
+                if response.status_code >= 400:
+                    response_data = response.json()
+            except Exception:
+                pass
+
             if response.status_code >= 400:
-                response_data = response.json()
-        except Exception:
-            pass
+                raise status_code_to_exception(response.status_code, response_data)
 
-        if response.status_code >= 400:
-            raise status_code_to_exception(response.status_code, response_data)
+            return response.json()
 
-        return response.json()
+        # Should not reach here, but just in case
+        raise GaggleConnectionError(
+            f"Request failed after {self._max_retries + 1} attempts"
+        )
 
     # ==================== Health Check ====================
 
