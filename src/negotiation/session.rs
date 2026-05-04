@@ -18,7 +18,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// Space 行列索引常量（与 SELECT 列顺序对应）
@@ -88,8 +88,8 @@ fn map_space(row: &rusqlite::Row) -> rusqlite::Result<Space> {
 
 pub struct SpaceManager {
     db: Arc<Mutex<Connection>>,
-    spaces: RwLock<HashMap<String, Space>>,
-    broadcast_txs: RwLock<HashMap<String, broadcast::Sender<String>>>,
+    spaces: dashmap::DashMap<String, Space>,
+    broadcast_txs: tokio::sync::RwLock<HashMap<String, broadcast::Sender<String>>>,
 }
 
 impl SpaceManager {
@@ -202,8 +202,8 @@ impl SpaceManager {
 
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
-            spaces: RwLock::new(HashMap::new()),
-            broadcast_txs: RwLock::new(HashMap::new()),
+            spaces: dashmap::DashMap::new(),
+            broadcast_txs: tokio::sync::RwLock::new(HashMap::new()),
         })
     }
 
@@ -266,8 +266,7 @@ impl SpaceManager {
             )?;
         }
 
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         let (tx, _) = broadcast::channel::<String>(512);
         let mut broadcast_txs = self.broadcast_txs.write().await;
@@ -298,8 +297,7 @@ impl SpaceManager {
 
     /// 更新内存缓存中的 Space
     pub async fn update_cache(&self, space: &Space) {
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
     }
 
     /// 检查并应用规则 transitions
@@ -325,8 +323,7 @@ impl SpaceManager {
 
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, GaggleError> {
         {
-            let spaces = self.spaces.read().await;
-            if let Some(space) = spaces.get(space_id) {
+            if let Some(space) = self.spaces.get(space_id) {
                 return Ok(Some(space.clone()));
             }
         }
@@ -340,8 +337,7 @@ impl SpaceManager {
         };
 
         if let Some(ref s) = result {
-            let mut spaces = self.spaces.write().await;
-            spaces.insert(s.id.clone(), s.clone());
+            self.spaces.insert(s.id.clone(), s.clone());
         }
 
         Ok(result)
@@ -401,8 +397,7 @@ impl SpaceManager {
                     }
                     space.pending_join_requests.push((agent.id.clone(), Utc::now().timestamp_millis()));
                     self.persist_space(&space)?;
-                    let mut spaces = self.spaces.write().await;
-                    spaces.insert(space.id.clone(), space.clone());
+                    self.spaces.insert(space.id.clone(), space.clone());
                     return Err(GaggleError::Forbidden(
                         "Join request submitted, awaiting approval".to_string(),
                     ));
@@ -435,8 +430,7 @@ impl SpaceManager {
         let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnMemberCount { count: member_count });
 
         self.persist_space(&space)?;
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         Ok(space)
     }
@@ -500,8 +494,7 @@ impl SpaceManager {
         let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnMemberCount { count: member_count });
 
         self.persist_space(&space)?;
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         Ok(space)
     }
@@ -534,8 +527,7 @@ impl SpaceManager {
         space.updated_at = Utc::now().timestamp_millis();
 
         self.persist_space(&space)?;
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         Ok(space)
     }
@@ -583,8 +575,7 @@ impl SpaceManager {
             )?;
         }
 
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         let (tx, _) = broadcast::channel::<String>(512);
         let mut broadcast_txs = self.broadcast_txs.write().await;
@@ -881,8 +872,7 @@ impl SpaceManager {
             )?;
         }
 
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         Ok(space)
     }
@@ -995,8 +985,7 @@ impl SpaceManager {
         if round == 1 {
             let mut space = self.get_space(space_id).await?.unwrap();
             let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnFirstProposal);
-            let mut spaces = self.spaces.write().await;
-            spaces.insert(space.id.clone(), space.clone());
+            self.spaces.insert(space.id.clone(), space.clone());
         }
 
         Ok(proposal)
@@ -1349,8 +1338,7 @@ impl SpaceManager {
             )?;
         }
 
-        let mut spaces = self.spaces.write().await;
-        spaces.insert(space.id.clone(), space.clone());
+        self.spaces.insert(space.id.clone(), space.clone());
 
         Ok(space)
     }
@@ -1384,8 +1372,7 @@ impl SpaceManager {
 
         // 清理内存缓存
         {
-            let mut spaces = self.spaces.write().await;
-            spaces.remove(space_id);
+            self.spaces.remove(space_id);
         }
 
         // 清理 broadcast channel
@@ -1619,8 +1606,7 @@ impl SpaceManager {
 
         // 更新内存缓存
         {
-            let mut spaces = self.spaces.write().await;
-            spaces.insert(space.id.clone(), space.clone());
+            self.spaces.insert(space.id.clone(), space.clone());
         }
 
         Ok(RoundInfo {
