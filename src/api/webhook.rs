@@ -15,6 +15,82 @@ fn http_client() -> Client {
         .unwrap_or_default()
 }
 
+/// Validate callback_url to prevent SSRF attacks.
+/// Blocks: private IPs, link-local, loopback, metadata endpoints.
+fn validate_callback_url(raw_url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(raw_url).map_err(|e| format!("invalid URL: {e}"))?;
+
+    // Only HTTPS or HTTP schemes allowed
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err(format!("unsupported scheme: {}", parsed.scheme())),
+    }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "URL must have a host".to_string())?
+        .trim_start_matches('[')
+        .trim_end_matches(']'); // Strip IPv6 brackets
+
+    // Block obvious internal/metadata hosts
+    let blocked_hosts = [
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "169.254.169.254", // AWS/GCP metadata
+        "metadata.google.internal",
+    ];
+    for &blocked in &blocked_hosts {
+        if host == blocked {
+            return Err(format!("callback URL blocked: {host}"));
+        }
+    }
+
+    // Block private IP ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x)
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if ip.is_loopback() {
+            return Err(format!("callback URL blocked: loopback IP {ip}"));
+        }
+        match &ip {
+            std::net::IpAddr::V4(v4) => {
+                let octets = v4.octets();
+                // 10.0.0.0/8
+                if octets[0] == 10 {
+                    return Err(format!("callback URL blocked: private IP {ip}"));
+                }
+                // 172.16.0.0/12
+                if octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31 {
+                    return Err(format!("callback URL blocked: private IP {ip}"));
+                }
+                // 192.168.0.0/16
+                if octets[0] == 192 && octets[1] == 168 {
+                    return Err(format!("callback URL blocked: private IP {ip}"));
+                }
+                // 169.254.0.0/16 (link-local / cloud metadata)
+                if octets[0] == 169 && octets[1] == 254 {
+                    return Err(format!("callback URL blocked: link-local IP {ip}"));
+                }
+                // 127.0.0.0/8 (loopback range)
+                if octets[0] == 127 {
+                    return Err(format!("callback URL blocked: loopback IP {ip}"));
+                }
+                // 0.0.0.0
+                if octets == [0, 0, 0, 0] {
+                    return Err(format!("callback URL blocked: unspecified IP {ip}"));
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                if v6.is_loopback() {
+                    return Err(format!("callback URL blocked: loopback IP {ip}"));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 向 Agent 的 callback_url 发送唤醒通知。
 ///
 /// 请求体格式：
@@ -35,6 +111,9 @@ pub async fn fire_webhook(
     event_type: &str,
     payload: &str,
 ) -> Result<(), String> {
+    // SSRF protection: validate target URL before making request
+    validate_callback_url(callback_url)?;
+
     let body = json!({
         "agent_id": agent_id,
         "event": event_type,
@@ -88,4 +167,37 @@ pub async fn fire_webhook(
         "webhook to {} failed after 3 attempts",
         callback_url
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_callback_url_blocks_ssrf() {
+        // Internal IPs should be blocked
+        assert!(validate_callback_url("http://127.0.0.1/webhook").is_err());
+        assert!(validate_callback_url("http://localhost/webhook").is_err());
+        assert!(validate_callback_url("http://10.0.0.1/webhook").is_err());
+        assert!(validate_callback_url("http://172.16.0.1/webhook").is_err());
+        assert!(validate_callback_url("http://192.168.1.1/webhook").is_err());
+        assert!(validate_callback_url("http://169.254.169.254/latest/meta-data/").is_err());
+        assert!(validate_callback_url("http://0.0.0.0/webhook").is_err());
+        assert!(validate_callback_url("http://[::1]/webhook").is_err());
+    }
+
+    #[test]
+    fn test_validate_callback_url_allows_public() {
+        // Public URLs should be allowed
+        assert!(validate_callback_url("https://example.com/webhook").is_ok());
+        assert!(validate_callback_url("http://203.0.113.50/webhook").is_ok());
+        assert!(validate_callback_url("https://api.agent-callback.io/hook").is_ok());
+    }
+
+    #[test]
+    fn test_validate_callback_url_rejects_bad_schemes() {
+        assert!(validate_callback_url("ftp://example.com/webhook").is_err());
+        assert!(validate_callback_url("file:///etc/passwd").is_err());
+        assert!(validate_callback_url("gopher://example.com/").is_err());
+    }
 }

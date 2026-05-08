@@ -91,13 +91,27 @@ impl RecruitmentRequest {
         }
     }
 
-    /// 接受招募
-    pub fn accept(&mut self) {
+    /// 接受招募 — only legal from Pending.
+    pub fn accept(&mut self) -> Result<(), String> {
+        if self.status != RecruitmentStatus::Pending {
+            return Err(format!(
+                "cannot accept recruitment: current status is {:?}, expected Pending",
+                self.status
+            ));
+        }
         self.status = RecruitmentStatus::Accepted;
+        Ok(())
     }
 
-    /// 拒绝招募
-    pub fn reject(&mut self) {
+    /// 拒绝招募 — only legal from Pending.
+    pub fn reject(&mut self) -> Result<(), String> {
+        if self.status != RecruitmentStatus::Pending {
+            return Err(format!(
+                "cannot reject recruitment: current status is {:?}, expected Pending",
+                self.status
+            ));
+        }
         self.status = RecruitmentStatus::Rejected;
+        Ok(())
     }
 }

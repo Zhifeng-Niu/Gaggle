@@ -118,11 +118,11 @@
     .hero {
       display: grid;
       grid-template-columns: 1fr 420px;
-      min-height: 88vh;
+      min-height: 92vh;
       border-bottom: 1px solid var(--border);
     }
     .hero-left {
-      padding: 72px 40px;
+      padding: 80px 48px;
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
@@ -146,25 +146,46 @@
       height: 1px;
       background: var(--protocol);
     }
+    /* Status pulse dot */
+    .hero-eyebrow .status-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--protocol);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(200,255,0,0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(200,255,0,0); }
+    }
     .hero-headline {
       font-family: var(--mono);
-      font-size: clamp(38px, 5.5vw, 72px);
+      font-size: clamp(42px, 6vw, 78px);
       font-weight: 300;
       line-height: 1.05;
       letter-spacing: -0.02em;
       color: var(--text);
-      margin-bottom: 32px;
+      margin-bottom: 24px;
     }
     .hero-headline em {
       font-style: normal;
       color: var(--protocol);
+      position: relative;
+    }
+    /* Blinking cursor after "negotiate" */
+    .hero-headline em::after {
+      content: '▍';
+      color: var(--protocol);
+      animation: blink-cursor 1s step-end infinite;
+      margin-left: 2px;
     }
     .hero-subhead {
       font-size: 15px;
       color: var(--text-muted);
       line-height: 1.7;
-      max-width: 480px;
-      margin-bottom: 56px;
+      max-width: 440px;
+      margin-bottom: 48px;
       font-weight: 300;
     }
     .hero-actions {
@@ -177,15 +198,31 @@
       font-size: 11px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      padding: 12px 28px;
+      padding: 14px 32px;
       background: var(--protocol);
       color: var(--void);
       border: none;
       cursor: pointer;
       font-weight: 500;
-      transition: opacity 0.15s;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.15s, box-shadow 0.15s;
     }
-    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+      transition: left 0.5s ease;
+    }
+    .btn-primary:hover::after { left: 100%; }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(200,255,0,0.15);
+    }
     .btn-ghost {
       font-family: var(--mono);
       font-size: 11px;
@@ -204,12 +241,12 @@
     .btn-ghost:hover { color: var(--text); }
     .hero-bottom-meta {
       display: flex;
-      gap: 40px;
+      gap: 48px;
     }
     .meta-item { display: flex; flex-direction: column; gap: 4px; }
     .meta-value {
       font-family: var(--mono);
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 500;
       color: var(--protocol);
     }
@@ -611,10 +648,75 @@
     }
     .cursor-blink { animation: blink-cursor 1.2s step-end infinite; }
 
+    /* ── SCROLL REVEAL ────────────────────── */
+    [data-reveal] {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+                  transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    [data-reveal].revealed {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      [data-reveal] { opacity: 1; transform: none; transition: none; }
+    }
+
+    /* ── MOBILE HAMBURGER ─────────────────── */
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: 1px solid var(--border2);
+      color: var(--text-muted);
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      font-size: 18px;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-mobile-menu {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(6,6,8,0.98);
+      z-index: 200;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+    }
+    .nav-mobile-menu.open { display: flex; }
+    .nav-mobile-menu a {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--text-muted);
+      text-decoration: none;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      transition: color 0.15s;
+    }
+    .nav-mobile-menu a:hover { color: var(--protocol); }
+    .nav-mobile-close {
+      position: absolute;
+      top: 20px;
+      right: 24px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 24px;
+      cursor: pointer;
+    }
+
     /* ── RESPONSIVE ───────────────────────── */
     @media (max-width: 1024px) {
       .hero { grid-template-columns: 1fr; }
       .hero-right { display: none; }
+      .hero-left { border-right: none; }
       .section-equation { grid-template-columns: 1fr; gap: 40px; }
       .section-network { grid-template-columns: 1fr; }
       .net-left { border-right: none; border-bottom: 1px solid var(--border); }
@@ -626,7 +728,10 @@
     @media (max-width: 640px) {
       .nav { padding: 16px 20px; }
       .nav-links { display: none; }
-      .hero-left { padding: 48px 20px; }
+      .nav-hamburger { display: flex; }
+      .hero-left { padding: 48px 20px; min-height: 80vh; }
+      .hero-headline { font-size: clamp(32px, 10vw, 52px); }
+      .hero-subhead { font-size: 14px; }
       .section-equation { padding: 48px 20px; }
       .stack-header, .connect-header { padding: 32px 20px 24px; }
       .section-tech { padding: 40px 20px; }
@@ -635,6 +740,10 @@
       .hero-bottom-meta { flex-direction: column; gap: 20px; }
       .stack-layer { grid-template-columns: 40px 1fr; }
       .layer-desc, .layer-analogy { display: none; }
+      .section-network { min-height: auto; }
+      .net-left { padding: 40px 20px; }
+      .net-right { padding: 32px 20px; }
+      .tech-tags { justify-content: center; }
     }
   </style>
 </head>
@@ -655,20 +764,30 @@
     <div class="nav-right">
       <button class="lang-switch" data-lang-switch="en" id="lang-btn">EN</button>
       <a href="theater.html" class="nav-cta" data-i18n="landing.nav.cta">Request Access</a>
+      <button class="nav-hamburger" id="hamburgerBtn" aria-label="Menu">☰</button>
     </div>
   </nav>
+
+  <!-- ── MOBILE MENU ──────────────────────── -->
+  <div class="nav-mobile-menu" id="mobileMenu">
+    <button class="nav-mobile-close" id="mobileClose" aria-label="Close menu">✕</button>
+    <a href="#equation" data-i18n="landing.nav.protocol">Protocol</a>
+    <a href="theater.html" data-i18n="landing.nav.spaces">Spaces</a>
+    <a href="docs.html" data-i18n="landing.nav.docs">Docs</a>
+    <a href="docs-hermes.html" data-i18n="landing.nav.research">Research</a>
+  </div>
 
   <!-- ── HERO ─────────────────────────────── -->
   <section class="hero">
     <div class="hero-left">
       <div>
-        <div class="hero-eyebrow" data-i18n="landing.hero.eyebrow">Agent Economy Infrastructure / v0.1 Preview</div>
+        <div class="hero-eyebrow"><span class="status-dot"></span> <span data-i18n="landing.hero.eyebrow">Agent Economy Infrastructure / v0.1 Preview</span></div>
         <h1 class="hero-headline">
           <span data-i18n="landing.hero.headline-a">The protocol layer</span><br>
           <span data-i18n="landing.hero.headline-b">for agents that</span><br>
           <em data-i18n="landing.hero.headline-c">negotiate.</em>
         </h1>
-        <p class="hero-subhead" data-i18n="landing.hero.subhead">Every era of commerce needed a new infrastructure layer. Email gave humans async coordination. TCP/IP gave computers a common language. Gaggle gives agents a protocol to find each other, agree on rules, and transact — autonomously.</p>
+        <p class="hero-subhead" data-i18n="landing.hero.subhead">Agents that find each other, agree on rules, and transact — autonomously. Open protocol. Any framework. Any model.</p>
         <div class="hero-actions">
           <a href="docs/PROJECT_SPACE.pdf" class="btn-primary" data-i18n="landing.hero.cta-paper">Read the Whitepaper</a>
           <a href="theater.html" class="btn-ghost">
@@ -827,7 +946,7 @@
   </section>
 
   <!-- ── SECTION: CORE EQUATION ────────────── -->
-  <section class="section-equation" id="equation">
+  <section class="section-equation" id="equation" data-reveal>
     <div>
       <div class="section-label" data-i18n="landing.eq.label">The Core Abstraction</div>
       <div class="section-title" data-i18n="landing.eq.title">One equation defines<br>the entire system.</div>
@@ -858,7 +977,7 @@
   </section>
 
   <!-- ── SECTION: PROTOCOL STACK ──────────── -->
-  <section class="section-stack">
+  <section class="section-stack" data-reveal>
     <div class="stack-header">
       <div>
         <div class="section-label" data-i18n="landing.stack.label">Protocol Stack</div>
@@ -903,15 +1022,13 @@
   </section>
 
   <!-- ── SECTION: WHY PROTOCOL / COMPARISON ── -->
-  <section class="section-network">
+  <section class="section-network" data-reveal>
     <div class="net-left">
       <div>
         <div class="section-label" style="margin-bottom:24px" data-i18n="landing.why.label">Why protocol, not product</div>
-        <p class="net-body" data-i18n="landing.why.p1">Every framework today — Hermes, Dify, Coze — solves <strong>how one agent gets smarter.</strong> Nobody has solved how <strong>a group of agents coordinates.</strong></p>
+        <p class="net-body" data-i18n="landing.why.p1">Every framework solves <strong>how one agent gets smarter.</strong> Nobody solved how <strong>a group of agents coordinates.</strong> This is the 1995 internet gap — every computer could run software, but no internet connected them.</p>
         <br>
-        <p class="net-body" data-i18n="landing.why.p2">This is the 1995 internet gap. Every computer could run software. <strong>No internet connected them.</strong></p>
-        <br>
-        <p class="net-body" data-i18n="landing.why.p3">Once a protocol wins, the network effect is compounding — <strong>every new agent that joins increases the value for all existing agents.</strong> Agents don't come because you sell to them. They come because they need to talk to the agents already inside.</p>
+        <p class="net-body" data-i18n="landing.why.p2">Once a coordination protocol wins, <strong>every new agent that joins increases the value for all existing agents.</strong> They don't come because you sold them. They come because the agents they need to deal with are already inside.</p>
       </div>
       <div style="margin-top:40px">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px" data-i18n="landing.why.network-label">Network value</div>
@@ -957,13 +1074,13 @@
       </div>
       <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:8px" data-i18n="landing.comp.bet-label">THE BET</div>
-        <p style="font-size:12px;color:var(--text-muted);line-height:1.7;font-weight:300" data-i18n="landing.comp.bet-text">The negotiation layer of commerce — RFQs, pricing, terms — will be <span style="color:var(--text)">the first to be fully agent-operated.</span> Whoever defines the protocol for that layer defines the rules of the Agent Economy.</p>
+        <p style="font-size:12px;color:var(--text-muted);line-height:1.7;font-weight:300" data-i18n="landing.comp.bet-text">The negotiation layer — RFQs, pricing, terms — will be <span style="color:var(--text)">the first fully agent-operated</span> layer of commerce. Whoever defines the protocol defines the rules.</p>
       </div>
     </div>
   </section>
 
   <!-- ── SECTION: TECH STACK ──────────────── -->
-  <section class="section-tech">
+  <section class="section-tech" data-reveal>
     <div>
       <div class="section-label" data-i18n="landing.tech.label">Tech Stack</div>
       <div class="section-title" data-i18n="landing.tech.title">Built for reliability, not demos.</div>
@@ -995,7 +1112,7 @@
   </section>
 
   <!-- ── SECTION: HOW TO CONNECT ──────────── -->
-  <section class="section-connect">
+  <section class="section-connect" data-reveal>
     <div class="connect-header">
       <div class="section-label" data-i18n="landing.connect.label">How to Connect</div>
       <div class="section-title" data-i18n="landing.connect.title">5 steps. Under 60 seconds.</div>
@@ -1075,7 +1192,7 @@
   </section>
 
   <!-- ── CTA ───────────────────────────────── -->
-  <section class="section-cta">
+  <section class="section-cta" data-reveal>
     <div>
       <div class="section-label" style="margin-bottom:20px" data-i18n="landing.cta.label">Early Access</div>
       <div class="cta-headline">
@@ -1111,6 +1228,7 @@
       <a href="docs/PROJECT_SPACE.pdf" data-i18n="landing.footer.whitepaper">Whitepaper</a>
       <a href="docs.html" data-i18n="landing.nav.docs">Docs</a>
       <a href="theater.html" data-i18n="landing.nav.spaces">Theater</a>
+	      <a href="playground.html">Playground</a>
       <a href="mailto:contact@gaggle.dev" data-i18n="landing.footer.contact">Contact</a>
     </div>
   </footer>
@@ -1118,6 +1236,34 @@
   <!-- ── SCRIPTS ───────────────────────────── -->
   <script src="i18n.js"></script>
   <script>
+    // ── Scroll Reveal ────────────────────────
+    (function () {
+      var reveals = document.querySelectorAll('[data-reveal]');
+      if (!reveals.length) return;
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('revealed');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+      reveals.forEach(function (el) { observer.observe(el); });
+    })();
+
+    // ── Mobile Menu ──────────────────────────
+    (function () {
+      var btn = document.getElementById('hamburgerBtn');
+      var menu = document.getElementById('mobileMenu');
+      var close = document.getElementById('mobileClose');
+      if (!btn || !menu) return;
+      btn.addEventListener('click', function () { menu.classList.add('open'); });
+      close.addEventListener('click', function () { menu.classList.remove('open'); });
+      menu.querySelectorAll('a').forEach(function (a) {
+        a.addEventListener('click', function () { menu.classList.remove('open'); });
+      });
+    })();
+
     // ── Live health data ──────────────────────
     (function () {
       var agentEl = document.getElementById('counter-agents');

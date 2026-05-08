@@ -169,6 +169,7 @@ mod tests {
             buyer_id: Some(buyer_id.to_string()),
             seller_id: None,
             pending_join_requests: Vec::new(),
+            version: 1,
         }
     }
 

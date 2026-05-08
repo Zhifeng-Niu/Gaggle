@@ -46,6 +46,41 @@ impl UserStore {
         &self,
         req: UserRegisterRequest,
     ) -> Result<UserRegisterResponse, GaggleError> {
+        // Input validation
+        let email = req.email.trim();
+        if email.is_empty() || !email.contains('@') || email.len() > 254 {
+            return Err(GaggleError::ValidationError("Invalid email address".to_string()));
+        }
+        if req.password.len() < 8 {
+            return Err(GaggleError::ValidationError("Password must be at least 8 characters".to_string()));
+        }
+        if req.password.len() > 128 {
+            return Err(GaggleError::ValidationError("Password too long (max 128)".to_string()));
+        }
+        let display_name = req.display_name.trim();
+        if display_name.is_empty() || display_name.len() > 64 {
+            return Err(GaggleError::ValidationError("Display name must be 1-64 characters".to_string()));
+        }
+
+        // Registration rate limit: max 5 registrations per hour globally
+        {
+            let db = self.db.lock().await;
+            let one_hour_ago = Utc::now().timestamp() - 3600;
+            let recent: u32 = db
+                .query_row(
+                    "SELECT COUNT(*) FROM users WHERE created_at > ?1",
+                    params![one_hour_ago],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            drop(db);
+            if recent >= 5 {
+                return Err(GaggleError::RateLimitExceeded(
+                    "Registration rate limit exceeded. Try again later.".to_string(),
+                ));
+            }
+        }
+
         let id = Uuid::new_v4().to_string();
         let api_key = format!("usr_{}", Uuid::new_v4().to_string().replace("-", ""));
         let api_secret = format!("uss_{}", Uuid::new_v4().to_string().replace("-", ""));
@@ -57,7 +92,7 @@ impl UserStore {
         db.execute(
             "INSERT INTO users (id, email, password_hash, display_name, api_key, api_secret_hash, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, req.email, password_hash, req.display_name, api_key, api_secret_hash, created_at],
+            params![id, email, password_hash, display_name, api_key, api_secret_hash, created_at],
         ).map_err(|e| {
             if e.to_string().contains("UNIQUE constraint failed: users.email") {
                 GaggleError::ValidationError("Email already registered".to_string())
@@ -68,8 +103,8 @@ impl UserStore {
 
         Ok(UserRegisterResponse {
             id,
-            email: req.email,
-            display_name: req.display_name,
+            email: email.to_string(),
+            display_name: display_name.to_string(),
             api_key,
             api_secret,
         })
@@ -77,26 +112,32 @@ impl UserStore {
 
     /// 用户登录
     pub async fn login(&self, req: UserLoginRequest) -> Result<UserLoginResponse, GaggleError> {
-        let db = self.db.lock().await;
-        let mut stmt = db.prepare("SELECT password_hash, api_key FROM users WHERE email = ?1")?;
-
-        let result = stmt
-            .query_row(params![req.email], |row| {
+        let result = {
+            let db = self.db.lock().await;
+            let mut stmt = db.prepare("SELECT password_hash, api_key FROM users WHERE email = ?1")?;
+            stmt.query_row(params![req.email], |row| {
                 let pw_hash: String = row.get(0)?;
                 let api_key: String = row.get(1)?;
                 Ok((pw_hash, api_key))
-            })
-            .optional()?;
+            }).optional()?
+        };
+        // Lock released before potential sleep
 
         match result {
             Some((pw_hash, api_key)) => {
                 if verify_password(&req.password, &pw_hash)? {
                     Ok(UserLoginResponse { api_key })
                 } else {
+                    // Delay on failure to slow brute-force attacks
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     Err(GaggleError::Unauthorized("Invalid credentials".to_string()))
                 }
             }
-            None => Err(GaggleError::Unauthorized("Invalid credentials".to_string())),
+            None => {
+                // Same delay for non-existent users to prevent enumeration
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                Err(GaggleError::Unauthorized("Invalid credentials".to_string()))
+            }
         }
     }
 
@@ -148,6 +189,19 @@ impl UserStore {
             .optional()?;
 
         Ok(user)
+    }
+
+    /// Count agents belonging to a user
+    pub async fn count_agents(&self, user_id: &str) -> Result<usize, GaggleError> {
+        let db = self.db.lock().await;
+        let count: usize = db
+            .query_row(
+                "SELECT COUNT(*) FROM agents WHERE user_id = ?1",
+                rusqlite::params![user_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count)
     }
 }
 

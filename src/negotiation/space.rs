@@ -24,6 +24,16 @@ pub enum SpaceStatus {
     Expired,
 }
 
+/// 状态转换记录 — 不可变事实，用于审计和 timeline reconstruction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusTransition {
+    pub from: SpaceStatus,
+    pub to: SpaceStatus,
+    pub at: i64,
+    pub trigger: String,
+    pub agent_id: Option<String>,
+}
+
 impl SpaceStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -33,6 +43,34 @@ impl SpaceStatus {
             SpaceStatus::Cancelled => "cancelled",
             SpaceStatus::Expired => "expired",
         }
+    }
+
+    /// Check whether transition from self to target is legal.
+    ///
+    /// Legal transitions:
+    ///   Created   → Active | Cancelled | Expired
+    ///   Active    → Concluded | Cancelled | Expired
+    ///   Concluded → (terminal)
+    ///   Cancelled → (terminal)
+    ///   Expired   → (terminal)
+    pub fn can_transition_to(&self, target: &SpaceStatus) -> bool {
+        matches!(
+            (self, target),
+            (SpaceStatus::Created, SpaceStatus::Active)
+                | (SpaceStatus::Created, SpaceStatus::Cancelled)
+                | (SpaceStatus::Created, SpaceStatus::Expired)
+                | (SpaceStatus::Active, SpaceStatus::Concluded)
+                | (SpaceStatus::Active, SpaceStatus::Cancelled)
+                | (SpaceStatus::Active, SpaceStatus::Expired)
+        )
+    }
+
+    /// Returns true for terminal states that cannot transition further.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            SpaceStatus::Concluded | SpaceStatus::Cancelled | SpaceStatus::Expired
+        )
     }
 }
 
@@ -140,6 +178,9 @@ pub struct Space {
     /// Vec of (agent_id, requested_at_timestamp)
     #[serde(default)]
     pub pending_join_requests: Vec<(String, i64)>,
+    /// 乐观锁版本号：每次 Space 变更递增，用于检测并发修改冲突
+    #[serde(default)]
+    pub version: u64,
 }
 
 impl Space {
@@ -180,6 +221,7 @@ impl Space {
             buyer_id,
             seller_id,
             pending_join_requests: Vec::new(),
+            version: 1,
         }
     }
 
@@ -222,10 +264,16 @@ impl Space {
             buyer_id: Some(creator_id), // RFP creator is always buyer
             seller_id: None,
             pending_join_requests: Vec::new(),
+            version: 1,
         }
     }
 
-    /// 判断是否所有被邀请的 Agent 都已加入
+    /// 递增 version，返回新的 version 值
+    pub fn bump_version(&mut self) -> u64 {
+        self.version += 1;
+        self.updated_at = Utc::now().timestamp_millis();
+        self.version
+    }
     pub fn all_joined(&self) -> bool {
         self.agent_ids
             .iter()
@@ -233,20 +281,55 @@ impl Space {
     }
 
     /// 激活Space（双方都已加入）
-    pub fn activate(&mut self) {
-        self.status = SpaceStatus::Active;
+    ///
+    /// Only legal from `Created` status.
+    pub fn activate(&mut self) -> Result<StatusTransition, String> {
+        let from = self.status.clone();
+        let target = SpaceStatus::Active;
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot activate space: current status is {:?}, expected Created",
+                self.status
+            ));
+        }
+        self.status = target;
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(StatusTransition {
+            from,
+            to: SpaceStatus::Active,
+            at: Utc::now().timestamp_millis(),
+            trigger: "all_agents_joined".to_string(),
+            agent_id: None,
+        })
     }
 
     /// 关闭Space
-    pub fn close(&mut self, concluded: bool) {
-        self.status = if concluded {
+    ///
+    /// Legal from `Created` or `Active`.
+    /// Terminal operation — cannot be reversed.
+    pub fn close(&mut self, concluded: bool, trigger: &str, agent_id: Option<&str>) -> Result<StatusTransition, String> {
+        let from = self.status.clone();
+        let target = if concluded {
             SpaceStatus::Concluded
         } else {
             SpaceStatus::Cancelled
         };
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot close space: current status is {:?}, which is terminal",
+                self.status
+            ));
+        }
+        self.status = target.clone();
         self.closed_at = Some(Utc::now().timestamp_millis());
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(StatusTransition {
+            from,
+            to: target,
+            at: Utc::now().timestamp_millis(),
+            trigger: trigger.to_string(),
+            agent_id: agent_id.map(|s| s.to_string()),
+        })
     }
 
     /// 检查Agent是否是成员
@@ -403,4 +486,125 @@ pub struct CloseSpaceRequest {
     pub conclusion: String, // "concluded" or "cancelled"
     #[serde(default)]
     pub final_terms: Option<JsonValue>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_space_status_legal_transitions() {
+        // Created → Active ✅
+        assert!(SpaceStatus::Created.can_transition_to(&SpaceStatus::Active));
+        // Created → Cancelled ✅
+        assert!(SpaceStatus::Created.can_transition_to(&SpaceStatus::Cancelled));
+        // Created → Expired ✅
+        assert!(SpaceStatus::Created.can_transition_to(&SpaceStatus::Expired));
+        // Active → Concluded ✅
+        assert!(SpaceStatus::Active.can_transition_to(&SpaceStatus::Concluded));
+        // Active → Cancelled ✅
+        assert!(SpaceStatus::Active.can_transition_to(&SpaceStatus::Cancelled));
+        // Active → Expired ✅
+        assert!(SpaceStatus::Active.can_transition_to(&SpaceStatus::Expired));
+    }
+
+    #[test]
+    fn test_space_status_illegal_transitions() {
+        // Terminal states cannot transition to anything
+        for terminal in &[SpaceStatus::Concluded, SpaceStatus::Cancelled, SpaceStatus::Expired] {
+            for target in &[
+                SpaceStatus::Created, SpaceStatus::Active,
+                SpaceStatus::Concluded, SpaceStatus::Cancelled, SpaceStatus::Expired,
+            ] {
+                assert!(!terminal.can_transition_to(target),
+                    "terminal {:?} should not transition to {:?}", terminal, target);
+            }
+        }
+        // Created → Created (no-op) should fail
+        assert!(!SpaceStatus::Created.can_transition_to(&SpaceStatus::Created));
+        // Active → Created (backwards) should fail
+        assert!(!SpaceStatus::Active.can_transition_to(&SpaceStatus::Created));
+    }
+
+    #[test]
+    fn test_space_activate_from_created() {
+        let mut space = Space {
+            id: "test".into(),
+            name: "Test".into(),
+            creator_id: "agent-1".into(),
+            agent_ids: vec!["agent-1".into(), "agent-2".into()],
+            joined_agent_ids: vec!["agent-1".into(), "agent-2".into()],
+            status: SpaceStatus::Created,
+            space_type: SpaceType::Bilateral,
+            rules: Default::default(),
+            rfp_context: None,
+            context: serde_json::json!({}),
+            encryption_key: "key".into(),
+            created_at: 0,
+            updated_at: 0,
+            closed_at: None,
+            buyer_id: None,
+            seller_id: None,
+            pending_join_requests: vec![],
+            version: 1,
+        };
+        assert!(space.activate().is_ok());
+        assert_eq!(space.status, SpaceStatus::Active);
+    }
+
+    #[test]
+    fn test_space_activate_from_active_fails() {
+        let mut space = Space {
+            id: "test".into(), name: "Test".into(), creator_id: "a".into(),
+            agent_ids: vec![], joined_agent_ids: vec![],
+            status: SpaceStatus::Active, space_type: SpaceType::Bilateral,
+            rules: Default::default(), rfp_context: None,
+            context: serde_json::json!({}), encryption_key: "k".into(),
+            created_at: 0, updated_at: 0, closed_at: None,
+            buyer_id: None, seller_id: None, pending_join_requests: vec![],
+            version: 1,
+        };
+        assert!(space.activate().is_err());
+    }
+
+    #[test]
+    fn test_space_close_from_active() {
+        let mut space = Space {
+            id: "test".into(), name: "Test".into(), creator_id: "a".into(),
+            agent_ids: vec![], joined_agent_ids: vec![],
+            status: SpaceStatus::Active, space_type: SpaceType::Bilateral,
+            rules: Default::default(), rfp_context: None,
+            context: serde_json::json!({}), encryption_key: "k".into(),
+            created_at: 0, updated_at: 0, closed_at: None,
+            buyer_id: None, seller_id: None, pending_join_requests: vec![],
+            version: 1,
+        };
+        assert!(space.close(true, "test", None).is_ok());
+        assert_eq!(space.status, SpaceStatus::Concluded);
+    }
+
+    #[test]
+    fn test_space_close_from_terminal_fails() {
+        let mut space = Space {
+            id: "test".into(), name: "Test".into(), creator_id: "a".into(),
+            agent_ids: vec![], joined_agent_ids: vec![],
+            status: SpaceStatus::Concluded, space_type: SpaceType::Bilateral,
+            rules: Default::default(), rfp_context: None,
+            context: serde_json::json!({}), encryption_key: "k".into(),
+            created_at: 0, updated_at: 0, closed_at: None,
+            buyer_id: None, seller_id: None, pending_join_requests: vec![],
+            version: 1,
+        };
+        assert!(space.close(false, "test", None).is_err());
+        assert_eq!(space.status, SpaceStatus::Concluded); // unchanged
+    }
+
+    #[test]
+    fn test_is_terminal() {
+        assert!(!SpaceStatus::Created.is_terminal());
+        assert!(!SpaceStatus::Active.is_terminal());
+        assert!(SpaceStatus::Concluded.is_terminal());
+        assert!(SpaceStatus::Cancelled.is_terminal());
+        assert!(SpaceStatus::Expired.is_terminal());
+    }
 }

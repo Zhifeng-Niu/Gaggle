@@ -60,6 +60,32 @@ impl ProposalStatus {
         }
     }
 
+    /// Check whether transition from self to target is legal.
+    ///
+    /// Legal transitions:
+    ///   Pending   → Accepted | Rejected | Superseded
+    ///   Accepted  → (terminal)
+    ///   Rejected  → (terminal)
+    ///   Superseded → (terminal)
+    pub fn can_transition_to(&self, target: &ProposalStatus) -> bool {
+        matches!(
+            (self, target),
+            (ProposalStatus::Pending, ProposalStatus::Accepted)
+                | (ProposalStatus::Pending, ProposalStatus::Rejected)
+                | (ProposalStatus::Pending, ProposalStatus::Superseded)
+        )
+    }
+
+    /// Returns true for terminal states that cannot transition further.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            ProposalStatus::Accepted
+                | ProposalStatus::Rejected
+                | ProposalStatus::Superseded
+        )
+    }
+
     pub fn from_str_safe(s: &str) -> Self {
         match s {
             "pending" => Self::Pending,
@@ -166,22 +192,46 @@ impl Proposal {
         }
     }
 
-    /// 接受提案
-    pub fn accept(&mut self) {
-        self.status = ProposalStatus::Accepted;
+    /// 接受提案 — only legal from Pending.
+    pub fn accept(&mut self) -> Result<(), String> {
+        let target = ProposalStatus::Accepted;
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot accept proposal: current status is {:?}, expected Pending",
+                self.status
+            ));
+        }
+        self.status = target;
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(())
     }
 
-    /// 拒绝提案
-    pub fn reject(&mut self) {
-        self.status = ProposalStatus::Rejected;
+    /// 拒绝提案 — only legal from Pending.
+    pub fn reject(&mut self) -> Result<(), String> {
+        let target = ProposalStatus::Rejected;
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot reject proposal: current status is {:?}, expected Pending",
+                self.status
+            ));
+        }
+        self.status = target;
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(())
     }
 
-    /// 标记为已被取代
-    pub fn supersede(&mut self) {
-        self.status = ProposalStatus::Superseded;
+    /// 标记为已被取代 — only legal from Pending.
+    pub fn supersede(&mut self) -> Result<(), String> {
+        let target = ProposalStatus::Superseded;
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot supersede proposal: current status is {:?}, expected Pending",
+                self.status
+            ));
+        }
+        self.status = target;
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(())
     }
 
     /// 检查提案是否待处理
@@ -397,5 +447,92 @@ pub fn quality_tier_score(tier: &str) -> f64 {
         "basic" | "2" | "2.0" => 0.4,
         "economy" | "1" | "1.0" => 0.2,
         _ => 0.5, // 未知等级给中间分
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_proposal_status_legal_transitions() {
+        // Pending → Accepted ✅
+        assert!(ProposalStatus::Pending.can_transition_to(&ProposalStatus::Accepted));
+        // Pending → Rejected ✅
+        assert!(ProposalStatus::Pending.can_transition_to(&ProposalStatus::Rejected));
+        // Pending → Superseded ✅
+        assert!(ProposalStatus::Pending.can_transition_to(&ProposalStatus::Superseded));
+    }
+
+    #[test]
+    fn test_proposal_status_illegal_transitions() {
+        // Terminal states cannot transition to anything
+        for terminal in &[ProposalStatus::Accepted, ProposalStatus::Rejected, ProposalStatus::Superseded] {
+            for target in &[
+                ProposalStatus::Pending, ProposalStatus::Accepted,
+                ProposalStatus::Rejected, ProposalStatus::Superseded,
+            ] {
+                assert!(!terminal.can_transition_to(target),
+                    "terminal {:?} should not transition to {:?}", terminal, target);
+            }
+        }
+        // Pending → Pending (no-op) should fail
+        assert!(!ProposalStatus::Pending.can_transition_to(&ProposalStatus::Pending));
+    }
+
+    #[test]
+    fn test_proposal_accept_from_pending() {
+        let mut p = Proposal {
+            id: "p1".into(), space_id: "s1".into(), sender_id: "a1".into(),
+            proposal_type: ProposalType::Initial, dimensions: Default::default(),
+            round: 1, status: ProposalStatus::Pending, parent_proposal_id: None,
+            created_at: 0, updated_at: 0,
+        };
+        assert!(p.accept().is_ok());
+        assert_eq!(p.status, ProposalStatus::Accepted);
+    }
+
+    #[test]
+    fn test_proposal_accept_from_accepted_fails() {
+        let mut p = Proposal {
+            id: "p1".into(), space_id: "s1".into(), sender_id: "a1".into(),
+            proposal_type: ProposalType::Initial, dimensions: Default::default(),
+            round: 1, status: ProposalStatus::Accepted, parent_proposal_id: None,
+            created_at: 0, updated_at: 0,
+        };
+        assert!(p.accept().is_err());
+        assert_eq!(p.status, ProposalStatus::Accepted); // unchanged
+    }
+
+    #[test]
+    fn test_proposal_reject_from_pending() {
+        let mut p = Proposal {
+            id: "p1".into(), space_id: "s1".into(), sender_id: "a1".into(),
+            proposal_type: ProposalType::Initial, dimensions: Default::default(),
+            round: 1, status: ProposalStatus::Pending, parent_proposal_id: None,
+            created_at: 0, updated_at: 0,
+        };
+        assert!(p.reject().is_ok());
+        assert_eq!(p.status, ProposalStatus::Rejected);
+    }
+
+    #[test]
+    fn test_proposal_supersede_from_rejected_fails() {
+        let mut p = Proposal {
+            id: "p1".into(), space_id: "s1".into(), sender_id: "a1".into(),
+            proposal_type: ProposalType::Initial, dimensions: Default::default(),
+            round: 1, status: ProposalStatus::Rejected, parent_proposal_id: None,
+            created_at: 0, updated_at: 0,
+        };
+        assert!(p.supersede().is_err());
+        assert_eq!(p.status, ProposalStatus::Rejected); // unchanged
+    }
+
+    #[test]
+    fn test_proposal_is_terminal() {
+        assert!(!ProposalStatus::Pending.is_terminal());
+        assert!(ProposalStatus::Accepted.is_terminal());
+        assert!(ProposalStatus::Rejected.is_terminal());
+        assert!(ProposalStatus::Superseded.is_terminal());
     }
 }

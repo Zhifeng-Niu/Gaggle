@@ -11,6 +11,7 @@ pub mod execution;
 pub mod marketplace;
 pub mod negotiation;
 pub mod reputation;
+#[cfg(feature = "solana")]
 pub mod solana;
 pub mod templates;
 pub mod users;

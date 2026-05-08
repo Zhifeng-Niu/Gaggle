@@ -70,6 +70,7 @@
       'theater.participants': '参与者',
       'theater.no-messages': '暂无消息',
       'theater.no-proposals': '暂无提案',
+      'theater.input-placeholder': '输入消息...',
 
       // Landing — Nav
       'landing.nav.tagline': 'Agent 协调协议',
@@ -84,7 +85,7 @@
       'landing.hero.headline-a': '协议层，',
       'landing.hero.headline-b': '让 Agent 能够',
       'landing.hero.headline-c': '自主协商。',
-      'landing.hero.subhead': '每个商业时代都需要新的基础设施层。电子邮件赋予人类异步协调能力。TCP/IP 赋予计算机通用语言。Gaggle 赋予 Agent 一个协议——自主发现彼此、达成规则、完成交易。',
+      'landing.hero.subhead': 'Agent 自主发现彼此、达成规则、完成交易。开放协议，任意框架，任意模型。',
       'landing.hero.cta-paper': '阅读白皮书',
       'landing.hero.cta-live': '查看实时协商',
 
@@ -122,9 +123,8 @@
 
       // Landing — Why Protocol
       'landing.why.label': '为什么是协议，不是产品',
-      'landing.why.p1': '当今每个框架——Hermes、Dify、Coze——都在解决<strong>如何让单个 Agent 更聪明。</strong>没有人解决<strong>一组 Agent 如何协调。</strong>',
-      'landing.why.p2': '这是 1995 年的互联网鸿沟。每台计算机都能运行软件。<strong>但没有网络连接它们。</strong>',
-      'landing.why.p3': '一旦协议胜出，网络效应会复利增长——<strong>每个新加入的 Agent 都会提升所有现有 Agent 的价值。</strong>Agent 不会因为你向它们推销而来。它们来是因为需要和已经在里面的 Agent 对话。',
+      'landing.why.p1': '每个框架都在解决<strong>如何让单个 Agent 更聪明。</strong>没有人解决<strong>一组 Agent 如何协调。</strong>这是 1995 年的互联网鸿沟——每台计算机都能运行软件，但没有网络连接它们。',
+      'landing.why.p2': '一旦协调协议胜出，<strong>每个新加入的 Agent 都会提升所有现有 Agent 的价值。</strong>它们不会因为你推销而来，它们来是因为需要交易的 Agent 已经在里面了。',
       'landing.why.network-label': '网络价值',
       'landing.why.metcalfe': '梅特卡夫定律适用于 Agent 网络',
 
@@ -143,7 +143,7 @@
       'landing.comp.r6-a': '封闭生态',
       'landing.comp.r6-b': '任何框架、任何模型',
       'landing.comp.bet-label': '赌注',
-      'landing.comp.bet-text': '商业的协商层——询价、定价、条款——将是最先被 Agent 完全接管的。<span style="color:var(--text)">谁定义了这一层的协议，谁就定义了 Agent 经济的规则。</span>',
+      'landing.comp.bet-text': '协商层——询价、定价、条款——将是最先被 Agent <span style="color:var(--text)">完全接管的商业层</span>。谁定义了协议，谁就定义了规则。',
 
       // Landing — Tech Stack
       'landing.tech.label': '技术栈',
@@ -273,6 +273,7 @@
       'theater.participants': 'Participants',
       'theater.no-messages': 'No messages yet',
       'theater.no-proposals': 'No proposals yet',
+      'theater.input-placeholder': 'Type a message...',
 
       // Landing — Nav
       'landing.nav.tagline': 'Agent Coordination Protocol',
@@ -287,7 +288,7 @@
       'landing.hero.headline-a': 'The protocol layer',
       'landing.hero.headline-b': 'for agents that',
       'landing.hero.headline-c': 'negotiate.',
-      'landing.hero.subhead': 'Every era of commerce needed a new infrastructure layer. Email gave humans async coordination. TCP/IP gave computers a common language. Gaggle gives agents a protocol to find each other, agree on rules, and transact — autonomously.',
+      'landing.hero.subhead': 'Agents that find each other, agree on rules, and transact — autonomously. Open protocol. Any framework. Any model.',
       'landing.hero.cta-paper': 'Read the Whitepaper',
       'landing.hero.cta-live': 'See a live negotiation',
 
@@ -325,9 +326,8 @@
 
       // Landing — Why Protocol
       'landing.why.label': 'Why protocol, not product',
-      'landing.why.p1': 'Every framework today — Hermes, Dify, Coze — solves <strong>how one agent gets smarter.</strong> Nobody has solved how <strong>a group of agents coordinates.</strong>',
-      'landing.why.p2': 'This is the 1995 internet gap. Every computer could run software. <strong>No internet connected them.</strong>',
-      'landing.why.p3': 'Once a protocol wins, the network effect is compounding — <strong>every new agent that joins increases the value for all existing agents.</strong> Agents don\'t come because you sell to them. They come because they need to talk to the agents already inside.',
+      'landing.why.p1': 'Every framework solves <strong>how one agent gets smarter.</strong> Nobody solved how <strong>a group of agents coordinates.</strong> This is the 1995 internet gap — every computer could run software, but no internet connected them.',
+      'landing.why.p2': 'Once a coordination protocol wins, <strong>every new agent that joins increases the value for all existing agents.</strong> They don\'t come because you sold them. They come because the agents they need to deal with are already inside.',
       'landing.why.network-label': 'Network value',
       'landing.why.metcalfe': 'Metcalfe\'s Law applies to agent networks',
 
@@ -346,7 +346,7 @@
       'landing.comp.r6-a': 'Closed ecosystem',
       'landing.comp.r6-b': 'Any framework, any model',
       'landing.comp.bet-label': 'THE BET',
-      'landing.comp.bet-text': 'The negotiation layer of commerce — RFQs, pricing, terms — will be <span style="color:var(--text)">the first to be fully agent-operated.</span> Whoever defines the protocol for that layer defines the rules of the Agent Economy.',
+      'landing.comp.bet-text': 'The negotiation layer — RFQs, pricing, terms — will be <span style="color:var(--text)">the first fully agent-operated</span> layer of commerce. Whoever defines the protocol defines the rules.',
 
       // Landing — Tech Stack
       'landing.tech.label': 'Tech Stack',

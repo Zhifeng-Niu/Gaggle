@@ -194,6 +194,9 @@ pub struct RoleConfig {
     /// Phase 13: 是否可修改空间规则
     #[serde(default)]
     pub can_change_rules: bool,
+    /// 是否可写入 shared state（Phase 14: Shared Reality Layer）
+    #[serde(default = "default_true")]
+    pub can_write_state: bool,
 }
 
 impl RoleConfig {
@@ -207,6 +210,7 @@ impl RoleConfig {
             can_close: true,
             can_evaluate: true,
             can_change_rules: true,
+            can_write_state: true,
         }
     }
 
@@ -220,6 +224,7 @@ impl RoleConfig {
             can_close: false,
             can_evaluate: false,
             can_change_rules: false,
+            can_write_state: true,
         }
     }
 
@@ -233,6 +238,7 @@ impl RoleConfig {
             can_close: false,
             can_evaluate: false,
             can_change_rules: false,
+            can_write_state: false,
         }
     }
 }
@@ -318,6 +324,12 @@ pub struct SpaceRules {
     /// Phase 13: 规则演化计划
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transitions: Vec<RuleTransition>,
+    /// Maximum messages per space (None = unlimited)
+    #[serde(default)]
+    pub max_messages: Option<usize>,
+    /// Maximum proposals per space (None = unlimited)
+    #[serde(default)]
+    pub max_proposals: Option<usize>,
 }
 
 impl Default for SpaceRules {
@@ -350,6 +362,8 @@ impl SpaceRules {
             max_participants: Some(2),
             join_policy: JoinPolicy::InviteOnly,
             transitions: Vec::new(),
+            max_messages: Some(500),
+            max_proposals: Some(50),
         }
     }
 
@@ -374,6 +388,7 @@ impl SpaceRules {
                 can_close: false,
                 can_evaluate: false,
                 can_change_rules: false,
+                can_write_state: true,
             },
         );
 
@@ -393,6 +408,8 @@ impl SpaceRules {
             max_participants: None,
             join_policy: JoinPolicy::InviteOnly,
             transitions: Vec::new(),
+            max_messages: Some(2000),
+            max_proposals: Some(200),
         }
     }
 
@@ -458,6 +475,15 @@ impl SpaceRules {
             .get(role)
             .map(|rc| rc.can_change_rules)
             .unwrap_or(false)
+    }
+
+    /// 检查指定角色是否可写入 shared state
+    /// 如果角色未在 rules 中定义，默认允许（向后兼容）
+    pub fn role_can_write_state(&self, role: &str) -> bool {
+        self.roles
+            .get(role)
+            .map(|rc| rc.can_write_state)
+            .unwrap_or(true)
     }
 
     /// 检查 transitions 中是否有匹配触发条件的规则变更

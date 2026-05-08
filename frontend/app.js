@@ -66,7 +66,15 @@ window.closeBottomSheet = function(id) {
     rfpProposals: [],
     // Phase 4: 合同管理
     contracts: [],
-    currentContract: null
+    currentContract: null,
+    // WS 可靠投递：event_seq 追踪
+    lastEventSeq: parseInt(localStorage.getItem('gaggle_last_event_seq') || '0', 10) || 0,
+    ackTimer: null,
+    // WS 连接健康指标
+    wsConnectTime: 0,
+    wsLastMsgTime: 0,
+    wsPingSent: 0,
+    wsLatencyMs: 0
   };
 
   state.wsBase = state.apiBase.replace(/^http/i, 'ws') + '/ws/v1/agents';
@@ -577,8 +585,10 @@ window.closeBottomSheet = function(id) {
 
   function handleLogout() {
     localStorage.removeItem('gaggle_api_key');
+    localStorage.removeItem('gaggle_last_event_seq');
     state.currentUser = null;
     state.currentAgentId = null;
+    state.lastEventSeq = 0;
     state.userAgents = [];
     showLanding();
   }
@@ -685,7 +695,14 @@ window.closeBottomSheet = function(id) {
 
   function setHealth(status) {
     dom.healthDot.className = 'health-dot ' + (status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting' : '');
-    dom.healthText.textContent = status === 'connected' ? '已连接' : status === 'connecting' ? '连接中...' : '离线';
+    var label = status === 'connected' ? '已连接' : status === 'connecting' ? '连接中...' : '离线';
+    if (status === 'connected' && state.wsLatencyMs > 0) {
+      label += ' · ' + state.wsLatencyMs + 'ms';
+    }
+    if (status === 'connected' && state.lastEventSeq > 0) {
+      label += ' · seq:' + state.lastEventSeq;
+    }
+    dom.healthText.textContent = label;
   }
 
   function checkHealth() {
@@ -1051,7 +1068,18 @@ window.closeBottomSheet = function(id) {
     }
     state.ws.onopen = function () {
       state.wsRetries = 0;
+      state.wsConnectTime = Date.now();
+      state.wsLastMsgTime = Date.now();
       setHealth('connected');
+      // Measure initial RTT via ping/pong
+      state.wsPingSent = Date.now();
+      try { state.ws.send(JSON.stringify({ type: 'ping' })); } catch (_) {}
+      // 发送 Resume：告知服务端最后收到的 event_seq，请求补发缺失事件
+      if (state.lastEventSeq > 0) {
+        try {
+          state.ws.send(JSON.stringify({ type: 'resume', last_event_seq: state.lastEventSeq }));
+        } catch (_) {}
+      }
     };
     state.ws.onmessage = function (event) {
       try {
@@ -1062,6 +1090,7 @@ window.closeBottomSheet = function(id) {
     };
     state.ws.onclose = function () {
       setHealth('disconnected');
+      if (state.ackTimer) { clearTimeout(state.ackTimer); state.ackTimer = null; }
       state.wsRetries += 1;
       var wait = Math.min(2000 * Math.pow(2, state.wsRetries), 30000);
       setTimeout(function () {
@@ -1074,10 +1103,47 @@ window.closeBottomSheet = function(id) {
   }
 
   function handleWSMessage(data) {
+    // 连接健康：更新最后消息时间
+    state.wsLastMsgTime = Date.now();
+
+    // Ping/Pong RTT 测量
+    if (data.type === 'pong' && data.timestamp && state.wsPingSent > 0) {
+      state.wsLatencyMs = Date.now() - state.wsPingSent;
+      state.wsPingSent = 0;
+      setHealth('connected'); // refresh display with latency
+      return;
+    }
+
+    // WS 可靠投递：追踪 event_seq，触发 debounced EventAck
+    if (data.event_seq && typeof data.event_seq === 'number') {
+      if (data.event_seq > state.lastEventSeq) {
+        state.lastEventSeq = data.event_seq;
+        try { localStorage.setItem('gaggle_last_event_seq', String(state.lastEventSeq)); } catch (_) {}
+      }
+      // Debounced ACK：200ms 内累积多个 event_seq，只发一次最新的
+      if (!state.ackTimer) {
+        state.ackTimer = setTimeout(function () {
+          state.ackTimer = null;
+          if (state.ws && state.ws.readyState === 1) {
+            try {
+              state.ws.send(JSON.stringify({ type: 'event_ack', event_seq: state.lastEventSeq }));
+            } catch (_) {}
+          }
+        }, 200);
+      }
+    }
     if (data.type === 'error') {
       toast('服务端错误：' + ((data.payload && data.payload.message) || '未知错误'), 'error');
       return;
     }
+    // 重放事件：将 payload 解包为原始消息处理
+    if (data.type === 'replayed_event' && data.payload) {
+      var inner = (typeof data.payload === 'string') ? JSON.parse(data.payload) : data.payload;
+      if (inner && inner.type) handleWSMessage(inner);
+      return;
+    }
+    // Resume ACK：确认重放完成（event_seq 追踪已在顶部处理）
+    if (data.type === 'resume_ack') return;
     if (/space_|rfp_created/.test(data.type) || data.type === 'space_left') loadSpaces();
     if (data.type === 'need_matched') {
       toast('需求已匹配 Provider！', 'success');

@@ -8,6 +8,7 @@ pub mod proposal;
 pub mod recruitment;
 pub mod rules;
 pub mod session;
+pub mod shared_state;
 pub mod space;
 pub mod subspace;
 pub mod visibility;
@@ -25,6 +26,10 @@ pub use rules::{
     SpaceRules, SpaceRulesOverrides, VisibilityRule, VisibilityRules,
 };
 pub use session::SpaceManager;
+pub use shared_state::{
+    SetStateRequest, SharedStateManager, SpaceStateSnapshot, StateEntry, StateEvent,
+    StateEventResponse, StateEventType, StateUpdateResult,
+};
 pub use visibility::VisibilityEngine;
 pub use space::{
     CloseSpaceRequest, CreateSpaceRequest, EncryptedContent, MessageVisibility, SendMessageRequest,

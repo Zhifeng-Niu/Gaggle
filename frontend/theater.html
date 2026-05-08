@@ -23,6 +23,7 @@
   <div class="landing-nav-links">
     <a href="/index.html" data-i18n="nav.home">首页</a>
     <a href="/docs.html" data-i18n="nav.docs">文档</a>
+	    <a href="/playground.html">Playground</a>
     <a href="/theater.html" data-i18n="nav.theater">观测台</a>
   </div>
   <div class="landing-nav-actions">
@@ -39,23 +40,24 @@
 
   <!-- Header row -->
   <div class="theater-header">
-    <select id="spaceSelect">
+    <select id="spaceSelect" aria-label="Select Space">
       <option value="" data-i18n="theater.select-space">选择 Space</option>
     </select>
     <div class="space-meta">
       <span>&#9679; <span id="agentCount">0</span> <span data-i18n="theater.participants">参与者</span></span>
       <span id="spaceStatus">--</span>
       <span id="spaceRound">--</span>
+      <span id="versionStatus" style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:0.04em" title="Shared Reality version">v--</span>
     </div>
     <div class="ws-status" id="wsStatus">
       <span class="ws-dot"></span>
       <span data-i18n="theater.disconnected">连接断开</span>
     </div>
-    <button class="btn-ghost" id="configToggle" style="font-size:12px;padding:4px 10px;margin-left:8px" title="Settings">&#9881;</button>
+    <button class="btn-ghost" id="configToggle" style="font-size:12px;padding:4px 10px;margin-left:8px" aria-label="Settings" title="Settings">&#9881;</button>
   </div>
 
   <!-- Left: Members -->
-  <div class="theater-members">
+  <div class="theater-members" role="region" aria-label="Space Members">
     <div class="theater-members-title" data-i18n="theater.members">成员</div>
     <div id="memberList">
       <div class="theater-empty">
@@ -69,9 +71,11 @@
   </div>
 
   <!-- Center: Messages -->
-  <div class="theater-messages">
+  <div class="theater-messages" role="region" aria-label="Messages">
     <div class="theater-messages-title" data-i18n="theater.messages">消息</div>
-    <div class="theater-messages-list" id="messageList">
+    <!-- State delta notification bar -->
+    <div id="stateDeltaBar" class="state-delta-bar" style="display:none"></div>
+    <div class="theater-messages-list" id="messageList" role="log" aria-live="polite">
       <div class="theater-empty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -79,11 +83,20 @@
         <span data-i18n="theater.no-messages">暂无消息</span>
       </div>
     </div>
+    <!-- Message Input -->
+    <div class="theater-input-area" id="inputArea">
+      <textarea id="msgInput" rows="1" placeholder="Type a message..." data-i18n-placeholder="theater.input-placeholder" aria-label="Message input"></textarea>
+      <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>Send</button>
+    </div>
   </div>
 
-  <!-- Right: Proposals -->
-  <div class="theater-proposals">
-    <div class="theater-proposals-title" data-i18n="theater.proposals">提案</div>
+  <!-- Right: Proposals + Shared State (tabbed) -->
+  <div class="theater-proposals" role="region" aria-label="Proposals and State">
+    <div class="theater-tab-bar">
+      <button class="theater-tab active" data-panel="proposalList" data-i18n="theater.proposals">提案</button>
+      <button class="theater-tab" data-panel="statePanel" data-i18n="theater.state">状态</button>
+      <button class="theater-tab" data-panel="tracePanel">Trace</button>
+    </div>
     <div id="proposalList">
       <div class="theater-empty">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -94,6 +107,115 @@
         <span data-i18n="theater.no-proposals">暂无提案</span>
       </div>
     </div>
+    <div id="statePanel" style="display:none">
+      <div class="state-header">
+        <span class="state-version" id="stateVersion">v0</span>
+        <span class="state-role-badge" id="stateRoleBadge" title="Your role and write permission"></span>
+        <button class="btn-ghost state-refresh" id="stateRefreshBtn" aria-label="Refresh state" title="Refresh">↻</button>
+      </div>
+      <!-- Reality Alignment: which agents are in sync with current state -->
+      <div id="realityAlignment" class="reality-alignment" style="display:none">
+        <div class="reality-alignment-header">
+          <span class="reality-label">REALITY ALIGNMENT</span>
+          <span id="realitySyncBadge" class="reality-sync-badge">--</span>
+        </div>
+        <div id="realityAgentBars" class="reality-agent-bars"></div>
+      </div>
+      <!-- Chain Integrity: hash chain verification -->
+      <div id="chainIntegrity" class="chain-integrity" style="display:none">
+        <span id="chainIntegrityBadge" class="chain-integrity-badge">--</span>
+        <span id="chainInfo" class="chain-info"></span>
+      </div>
+      <!-- State Integrity: materialized vs reconstructed -->
+      <span id="stateIntegrityBadge" class="chain-integrity-badge" style="display:none">--</span>
+      <!-- State Timeline: version evolution visual -->
+      <div id="stateTimeline" class="state-timeline"></div>
+      <div id="stateEntries">
+        <div class="theater-empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+          <span data-i18n="theater.no-state">暂无共享状态</span>
+        </div>
+      </div>
+      <div class="state-set-form" id="stateSetForm">
+        <input type="text" id="stateKeyInput" placeholder="key" class="state-key-input" aria-label="State key" />
+        <input type="text" id="stateValueInput" placeholder='{"value": ...}' class="state-value-input" aria-label="State value (JSON)" />
+        <button class="state-set-btn" id="stateSetBtn" aria-label="Set state value">Set</button>
+      </div>
+      <div class="state-events-toggle" id="stateEventsToggle">▼ Event Log</div>
+      <div id="stateEventsLog" style="display:none">
+        <div class="theater-empty"><span>No events yet</span></div>
+      </div>
+    </div>
+    <div id="tracePanel" style="display:none" role="region" aria-label="Audit Trace">
+      <div class="state-header">
+        <span class="trace-title" style="font-family:var(--ds-font-mono);font-size:11px;color:var(--text-muted);letter-spacing:0.06em">AUDIT TRACE</span>
+        <button class="btn-ghost state-refresh" id="traceRefreshBtn" aria-label="Refresh trace" title="Refresh">↻</button>
+      </div>
+      <!-- Stats Summary Bar -->
+      <div id="traceStatsBar" class="trace-stats-bar" style="display:none">
+        <span class="trace-stat-chip" data-cat="negotiation" title="Negotiation events">
+          <span class="trace-stat-dot" style="background:#7eb8da"></span>
+          <span id="statNeg">0</span>
+        </span>
+        <span class="trace-stat-chip" data-cat="state" title="State events">
+          <span class="trace-stat-dot" style="background:#b388ff"></span>
+          <span id="statState">0</span>
+        </span>
+        <span class="trace-stat-chip" data-cat="execution" title="Execution events">
+          <span class="trace-stat-dot" style="background:#ffab40"></span>
+          <span id="statExec">0</span>
+        </span>
+        <span class="trace-stat-chip" data-cat="institution" title="Institution events">
+          <span class="trace-stat-dot" style="background:#80cbc4"></span>
+          <span id="statInst">0</span>
+        </span>
+        <span class="trace-stat-chip" data-cat="security" title="Security events">
+          <span class="trace-stat-dot" style="background:#ff6b6b"></span>
+          <span id="statSec">0</span>
+        </span>
+        <span class="trace-stat-total" id="statTotal">0 total</span>
+      </div>
+      <!-- Filter Bar -->
+      <div class="trace-filter-bar">
+        <select id="traceFilterAction" aria-label="Filter by action" class="trace-filter-select">
+          <option value="">All Actions</option>
+          <optgroup label="Negotiation">
+            <option value="space_created">space_created</option>
+            <option value="space_joined">space_joined</option>
+            <option value="space_left">space_left</option>
+            <option value="message_sent">message_sent</option>
+            <option value="proposal_submitted">proposal_submitted</option>
+            <option value="proposal_responded">proposal_responded</option>
+            <option value="round_advanced">round_advanced</option>
+          </optgroup>
+          <optgroup label="State">
+            <option value="state_set">state_set</option>
+            <option value="state_deleted">state_deleted</option>
+          </optgroup>
+          <optgroup label="Execution">
+            <option value="contract_created">contract_created</option>
+            <option value="milestone_submitted">milestone_submitted</option>
+          </optgroup>
+          <optgroup label="Institution">
+            <option value="rules_updated">rules_updated</option>
+            <option value="coalition_created">coalition_created</option>
+            <option value="delegation_created">delegation_created</option>
+          </optgroup>
+          <optgroup label="Security">
+            <option value="rule_check_denied">rule_check_denied</option>
+            <option value="chain_verified">chain_verified</option>
+          </optgroup>
+        </select>
+      </div>
+      <div id="traceEntries" role="log" aria-live="polite">
+        <div class="theater-empty">
+          <span style="font-size:11px;color:var(--text-muted)">暂无审计记录</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Footer -->
@@ -102,10 +224,15 @@
     <span class="rule-tag" id="ruleReveal">--</span>
     <span class="rule-tag" id="ruleRound">--</span>
     <span class="rule-tag" id="ruleParticipants">--</span>
+    <span class="rule-tag" id="cursorStatus" style="border-color:var(--protocol);color:var(--protocol)" title="Agent cursor (last seen state version)">cursor: --</span>
+    <span class="rule-tag" id="eventSeqStatus" style="border-color:#555;color:#888" title="Last processed event seq (durable delivery)">evt: 0</span>
+    <span class="rule-tag" id="capacityStatus" style="border-color:#555;color:#888" title="Space message/proposal capacity">cap: --</span>
+    <span class="rule-tag" id="pendingStatus" style="border-color:#555;color:#888" title="Pending WS requests">pending: 0</span>
+    <span class="rule-tag" id="queueStatus" style="margin-left:auto;border-color:#555;color:#888" title="Event queue health: pending | retrying | dead_letter">queue: --</span>
   </div>
 
   <!-- Mobile bottom tabs (hidden on desktop) -->
-  <nav class="theater-bottom-tabs" id="bottomTabs">
+  <nav class="theater-bottom-tabs" id="bottomTabs" aria-label="Theater panels">
     <button class="tab-btn active" data-tab="messages" data-i18n="theater.messages">消息</button>
     <button class="tab-btn" data-tab="members" data-i18n="theater.members">成员</button>
     <button class="tab-btn" data-tab="proposals" data-i18n="theater.proposals">提案</button>
@@ -150,9 +277,67 @@
   var colorIndex = 0;
   var heartbeatInterval = null;
   var onlineCheckInterval = null;
+  var queueStatsInterval = null;
   var reconnectTimeout = null;
+  var pongTimeout = null;
+  var reconnectAttempts = 0;
+  var MAX_RECONNECT_DELAY = 60000;
   var membersCache = [];
   var highlightedAgentId = null;
+
+  // ── Event Ack: track last event_seq and send cumulative ACK ──
+  var lastProcessedEventSeq = 0;
+  var replayRecoveredCount = 0;
+
+  // ── Space role mapping: buyer_id/seller_id → role tag ──────
+  var spaceRoles = {};  // agentId → 'BUYER' | 'SELLER'
+  var spacesData = [];  // cache full space data
+
+  // ── WS Request ID + Delivery Tracking ─────────────────────
+  var pendingRequests = {};  // requestId → { type, sentAt, status }
+  var requestIdCounter = 0;
+
+  function generateRequestId() {
+    return 'req_' + Date.now().toString(36) + '_' + (++requestIdCounter);
+  }
+
+  /** Send a WS message with automatic request_id tracking */
+  function sendTracked(msg) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return null;
+    var rid = generateRequestId();
+    msg.request_id = rid;
+    pendingRequests[rid] = { type: msg.type, sentAt: Date.now(), status: 'pending' };
+    ws.send(JSON.stringify(msg));
+    updatePendingStatus();
+    // Auto-cleanup old entries (> 60s)
+    var now = Date.now();
+    Object.keys(pendingRequests).forEach(function (k) {
+      if (now - pendingRequests[k].sentAt > 60000) delete pendingRequests[k];
+    });
+    return rid;
+  }
+
+  /** Resolve a pending request from an ack/error/response */
+  function resolvePending(rid, result) {
+    if (!rid || !pendingRequests[rid]) return;
+    pendingRequests[rid].status = result;
+    pendingRequests[rid].resolvedAt = Date.now();
+    updatePendingStatus();
+    // Auto-remove after 5s
+    setTimeout(function () { delete pendingRequests[rid]; updatePendingStatus(); }, 5000);
+  }
+
+  /** Update the pending request counter in the footer */
+  function updatePendingStatus() {
+    var el = $('pendingStatus');
+    if (!el) return;
+    var count = Object.keys(pendingRequests).filter(function (k) {
+      return pendingRequests[k].status === 'pending';
+    }).length;
+    el.textContent = 'pending: ' + count;
+    el.style.borderColor = count > 0 ? 'var(--protocol)' : '#555';
+    el.style.color = count > 0 ? 'var(--protocol)' : '#888';
+  }
 
   var COLORS = [
     '#c8ff00', '#ff6b35', '#34d399', '#facc15',
@@ -317,6 +502,8 @@
     defaultOpt.value = '';
     select.appendChild(defaultOpt);
 
+    spacesData = spaces;
+
     for (var i = 0; i < spaces.length; i++) {
       var opt = el('option');
       opt.value = spaces[i].id;
@@ -327,6 +514,37 @@
     select.onchange = function () { selectSpace(select.value); };
 
     if (spaces.length > 0) selectSpace(spaces[0].id);
+  }
+
+  function cacheSpaceRoles(spaceId) {
+    spaceRoles = {};
+    var currentRole = null;
+    var rules = null;
+    for (var i = 0; i < spacesData.length; i++) {
+      if (spacesData[i].id === spaceId) {
+        if (spacesData[i].buyer_id) spaceRoles[spacesData[i].buyer_id] = 'BUYER';
+        if (spacesData[i].seller_id) spaceRoles[spacesData[i].seller_id] = 'SELLER';
+        rules = spacesData[i].rules;
+        break;
+      }
+    }
+    // Update role badge in state panel
+    var cfg = getCfg();
+    var agentId = cfg.agentId;
+    currentRole = spaceRoles[agentId] || 'MEMBER';
+    var badge = $('stateRoleBadge');
+    if (badge && rules && rules.roles) {
+      var roleKey = currentRole.toLowerCase();
+      var roleConfig = rules.roles[roleKey];
+      var canWrite = roleConfig ? roleConfig.can_write_state : true;
+      badge.textContent = currentRole + (canWrite ? ' \u00b7 WRITE' : ' \u00b7 READ-ONLY');
+      badge.className = 'state-role-badge' + (canWrite ? ' role-writable' : ' role-readonly');
+      badge.title = canWrite
+        ? 'Role ' + currentRole + ' can write shared state'
+        : 'Role ' + currentRole + ' is read-only for shared state';
+    } else if (badge) {
+      badge.textContent = '';
+    }
   }
 
   // ── WebSocket ─────────────────────────────────────────────
@@ -359,20 +577,63 @@
 
     ws.onopen = function () {
       setWsStatus('connected');
-      ws.send(JSON.stringify({ type: 'list_spaces' }));
+      reconnectAttempts = 0; // Reset backoff on successful connect
+      sendTracked({ type: 'list_spaces' });
+
+      // Auto-resume: if we have a last_event_seq, request replay of missed events
+      if (lastProcessedEventSeq > 0) {
+        console.log('Requesting event resume from seq', lastProcessedEventSeq);
+        sendTracked({ type: 'resume', last_event_seq: lastProcessedEventSeq });
+      }
 
       heartbeatInterval = setInterval(function () {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
+          // Expect pong within 10s, otherwise force reconnect
+          if (pongTimeout) clearTimeout(pongTimeout);
+          pongTimeout = setTimeout(function () {
+            console.warn('Pong timeout — forcing reconnect');
+            if (ws) { ws.onclose = null; ws.close(); }
+            clearTimers();
+            setWsStatus('disconnected');
+            scheduleReconnect();
+          }, 10000);
         }
       }, 30000);
 
       onlineCheckInterval = setInterval(function () {
         if (ws && ws.readyState === WebSocket.OPEN && membersCache.length > 0) {
           var ids = membersCache.map(function (m) { return m.agent_id || m.id; });
-          ws.send(JSON.stringify({ type: 'check_online', payload: { agent_ids: ids } }));
+          sendTracked({ type: 'check_online', payload: { agent_ids: ids } });
         }
       }, 10000);
+
+      // Poll event queue stats every 15s for observability
+      queueStatsInterval = setInterval(function () {
+        var cfg = getCfg();
+        var baseUrl = cfg.baseUrl || API_BASE;
+        var key = cfg.apiKey || '';
+        if (!key) return;
+        fetch(baseUrl + '/api/v1/events/queue-stats', {
+          headers: { 'Authorization': 'Bearer ' + key }
+        }).then(function (r) { return r.json(); }).then(function (stats) {
+          var el = $('queueStatus');
+          if (!el) return;
+          var retrying = stats.retry_pending_count || 0;
+          var dead = stats.dead_letter_count || 0;
+          el.textContent = 'queue: ' + (stats.pending_count || 0) + '|' + retrying + '|' + dead;
+          if (dead > 0) {
+            el.style.borderColor = 'var(--signal)';
+            el.style.color = 'var(--signal)';
+          } else if (retrying > 0) {
+            el.style.borderColor = 'var(--protocol)';
+            el.style.color = 'var(--protocol)';
+          } else {
+            el.style.borderColor = '#555';
+            el.style.color = '#888';
+          }
+        }).catch(function () {});
+      }, 15000);
 
       loadSpaces();
     };
@@ -395,23 +656,66 @@
   function clearTimers() {
     if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
     if (onlineCheckInterval) { clearInterval(onlineCheckInterval); onlineCheckInterval = null; }
+    if (queueStatsInterval) { clearInterval(queueStatsInterval); queueStatsInterval = null; }
     if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
+    if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
   }
 
   function scheduleReconnect() {
     if (reconnectTimeout) return;
+    var delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+    // Add jitter ±25% to avoid thundering herd
+    delay = delay * (0.75 + Math.random() * 0.5);
+    console.log('Reconnecting in ' + Math.round(delay) + 'ms (attempt ' + (reconnectAttempts + 1) + ')');
     reconnectTimeout = setTimeout(function () {
       reconnectTimeout = null;
+      reconnectAttempts++;
       var cfg = getCfg();
       if (cfg.agentId && cfg.apiKey) connectWS();
-    }, 5000);
+    }, delay);
   }
 
   // ── WS message dispatch ───────────────────────────────────
 
   function handleWsMessage(msg) {
+    // Resolve pending request if response has request_id
+    if (msg.request_id) {
+      var result = msg.type === 'error' ? 'error' :
+                   (msg.result === 'ok' ? 'ok' : msg.type);
+      resolvePending(msg.request_id, result);
+    }
+
+    // Real-time version tracking: update version badge from any event carrying space_version
+    if (msg.space_version && typeof msg.space_version === 'number') {
+      var verEl = $('versionStatus');
+      if (verEl) verEl.textContent = 'v' + msg.space_version;
+    }
+
+    // Event ACK: if message carries event_seq, track and send cumulative ACK
+    if (msg.event_seq && typeof msg.event_seq === 'number') {
+      if (msg.event_seq > lastProcessedEventSeq) {
+        lastProcessedEventSeq = msg.event_seq;
+      }
+      // Debounced ACK: send after short delay to batch multiple events
+      if (!handleWsMessage._ackTimer) {
+        handleWsMessage._ackTimer = setTimeout(function () {
+          handleWsMessage._ackTimer = null;
+          if (ws && ws.readyState === WebSocket.OPEN && lastProcessedEventSeq > 0) {
+            ws.send(JSON.stringify({ type: 'event_ack', event_seq: lastProcessedEventSeq }));
+            var el = $('eventSeqStatus');
+            if (el) el.textContent = 'evt: ' + lastProcessedEventSeq;
+          }
+        }, 200);
+      }
+    }
+
     switch (msg.type) {
-      case 'pong': break;
+      case 'pong':
+        if (pongTimeout) { clearTimeout(pongTimeout); pongTimeout = null; }
+        break;
+      case 'replayed_event':
+        handleReplayedEvent(msg);
+        break;
       case 'spaces_list':
         populateSpaceSelect(msg.payload && msg.payload.spaces ? msg.payload.spaces : []);
         break;
@@ -442,12 +746,120 @@
       case 'space_info':
         updateSpaceInfo(msg.payload);
         break;
-      case 'ack': break;
+      case 'state_updated':
+        // Shared state changed — refresh if state panel is visible
+        if ($('statePanel').style.display !== 'none') loadSharedState();
+        loadRealityAlignment(); // always update alignment status
+        break;
+      case 'ack':
+        if (msg.result !== 'ok') {
+          console.warn('WS ack error:', msg.error || msg.payload);
+        }
+        break;
+      case 'resume_ack':
+        replayRecoveredCount = msg.replayed_count || 0;
+        console.log('Resume complete:', replayRecoveredCount, 'events replayed');
+        if (replayRecoveredCount > 0) {
+          showReplayRecoveredBar(replayRecoveredCount);
+        }
+        // After resume, sync state for current space
+        if (currentSpaceId && ws && ws.readyState === WebSocket.OPEN) {
+          sendTracked({ type: 'sync_state', space_id: currentSpaceId });
+        }
+        break;
+      case 'state_delta':
+        handleStateDelta(msg);
+        break;
       case 'error':
         console.error('WS error:', msg.payload);
         break;
       default: break;
     }
+  }
+
+  function handleStateDelta(msg) {
+    if (!msg || !msg.space_id) return;
+    var events = msg.events || [];
+    if (events.length === 0) {
+      console.log('State delta: already up-to-date (v' + msg.to_version + ')');
+      return;
+    }
+    console.log(
+      'State delta for', msg.space_id,
+      ': v' + msg.from_version + ' → v' + msg.to_version,
+      '(' + events.length + ' events)'
+    );
+
+    // Update cursor status in footer
+    var cursorEl = $('cursorStatus');
+    if (cursorEl && msg.space_id === currentSpaceId) {
+      cursorEl.textContent = 'cursor: v' + msg.to_version;
+    }
+
+    // Show state delta notification bar
+    showStateDeltaBar(msg);
+
+    // Refresh state panel if visible
+    if ($('statePanel').style.display !== 'none' && msg.space_id === currentSpaceId) {
+      loadSharedState();
+      loadStateEvents();
+    }
+    // Always refresh alignment when delta arrives for current space
+    if (msg.space_id === currentSpaceId) loadRealityAlignment();
+  }
+
+  function showStateDeltaBar(msg) {
+    var bar = $('stateDeltaBar');
+    if (!bar || msg.space_id !== currentSpaceId) return;
+    var events = msg.events || [];
+    var summary = events.map(function (e) {
+      var arrow = e.event_type === 'set' ? (e.key + '=' + (e.new_value ? JSON.stringify(e.new_value).substring(0, 30) : '?')) : ('DEL ' + e.key);
+      return arrow;
+    }).join(', ');
+    if (summary.length > 80) summary = summary.substring(0, 77) + '...';
+    // Show hash chain status if available
+    var lastEvent = events[events.length - 1];
+    var hashInfo = '';
+    if (lastEvent && lastEvent.event_hash) {
+      hashInfo = ' \u00b7 chain#' + lastEvent.event_hash.substring(0, 8);
+    }
+    bar.textContent = 'DELTA v' + msg.from_version + ' \u2192 v' + msg.to_version + ' | ' + summary + hashInfo;
+    bar.style.display = '';
+    clearTimeout(bar._hideTimer);
+    bar._hideTimer = setTimeout(function () { bar.style.display = 'none'; }, 4000);
+  }
+
+  // ── Replay recovery: process replayed events from durable EventQueue ──
+
+  function handleReplayedEvent(msg) {
+    // Track event_seq for cumulative ACK
+    if (msg.event_seq && msg.event_seq > lastProcessedEventSeq) {
+      lastProcessedEventSeq = msg.event_seq;
+    }
+
+    // The payload contains the original event that was missed during disconnect.
+    // Re-dispatch it through the normal message handler.
+    var innerType = msg.event_type;
+    var innerPayload = msg.payload;
+    if (!innerType || !innerPayload) return;
+
+    // Construct a synthetic message matching the original event structure
+    var synthetic = innerPayload;
+    if (typeof synthetic === 'object') {
+      synthetic._replayed = true;
+      synthetic._replay_seq = msg.event_seq;
+    }
+    handleWsMessage(synthetic);
+    replayRecoveredCount++;
+  }
+
+  function showReplayRecoveredBar(count) {
+    var bar = $('stateDeltaBar');
+    if (!bar) return;
+    bar.textContent = 'REPLAY RECOVERED: ' + count + ' event' + (count !== 1 ? 's' : '') + ' from offline queue';
+    bar.style.display = '';
+    clearTimeout(bar._hideTimer);
+    bar._hideTimer = setTimeout(function () { bar.style.display = 'none'; }, 6000);
   }
 
   function handleMessagesList(payload) {
@@ -465,6 +877,8 @@
   function selectSpace(spaceId) {
     currentSpaceId = spaceId;
     highlightedAgentId = null;
+    stateTransitions = []; // Reset state timeline on space switch
+    cacheSpaceRoles(spaceId);
 
     // Fade out panels during transition
     var panels = document.querySelectorAll('.theater-messages, .theater-proposals');
@@ -491,6 +905,7 @@
     msgList.appendChild(msgEmpty);
 
     // Reset proposals panel
+    proposalsStore = {};
     var propList = $('proposalList');
     propList.textContent = '';
     var propEmpty = el('div', 'theater-empty');
@@ -522,13 +937,18 @@
     $('ruleReveal').textContent = '--';
     $('ruleRound').textContent = '--';
     $('ruleParticipants').textContent = '--';
+    $('capacityStatus').textContent = 'cap: --';
+    $('capacityStatus').style.borderColor = '#555';
+    $('capacityStatus').style.color = '#888';
 
     // Request data over WS
     if (ws && ws.readyState === WebSocket.OPEN && spaceId) {
-      ws.send(JSON.stringify({ type: 'join_space', payload: { space_id: spaceId } }));
-      ws.send(JSON.stringify({ type: 'get_messages', payload: { space_id: spaceId, limit: 50 } }));
-      ws.send(JSON.stringify({ type: 'get_proposals', payload: { space_id: spaceId } }));
-      ws.send(JSON.stringify({ type: 'get_space_info', payload: { space_id: spaceId } }));
+      sendTracked({ type: 'join_space', payload: { space_id: spaceId } });
+      sendTracked({ type: 'get_messages', payload: { space_id: spaceId, limit: 50 } });
+      sendTracked({ type: 'get_proposals', payload: { space_id: spaceId } });
+      sendTracked({ type: 'get_space_info', payload: { space_id: spaceId } });
+      // Auto-sync shared state version
+      sendTracked({ type: 'sync_state', space_id: spaceId });
     }
 
     updateMembers();
@@ -591,7 +1011,7 @@
     // Request online status immediately
     if (ws && ws.readyState === WebSocket.OPEN && members.length > 0) {
       var ids = members.map(function (m) { return m.agent_id || m.id; });
-      ws.send(JSON.stringify({ type: 'check_online', payload: { agent_ids: ids } }));
+      sendTracked({ type: 'check_online', payload: { agent_ids: ids } });
     }
   }
 
@@ -664,6 +1084,15 @@
     sender.style.color = color;
     sender.textContent = msg.sender_name || msg.sender_id || msg.agent_id || 'System';
     header.appendChild(sender);
+
+    // Role tag (BUYER / SELLER) for coordination context
+    var role = spaceRoles[senderId];
+    if (role) {
+      var roleTag = el('span', 'msg-role-tag ' + role.toLowerCase());
+      roleTag.textContent = role;
+      header.appendChild(roleTag);
+    }
+
     header.appendChild(el('span', 'msg-time', time));
 
     var body = el('div', 'msg-body' + (isSystem ? ' system' : ''));
@@ -678,22 +1107,57 @@
 
   // ── Proposals ─────────────────────────────────────────────
 
+  var proposalsStore = {};
+
+  function getChainDepth(proposal) {
+    var depth = 0;
+    var current = proposal;
+    while (current && current.parent_proposal_id && depth < 3) {
+      var parent = proposalsStore[current.parent_proposal_id];
+      if (!parent) break;
+      depth++;
+      current = parent;
+    }
+    return depth;
+  }
+
+  function hasAcceptedProposal() {
+    var keys = Object.keys(proposalsStore);
+    for (var i = 0; i < keys.length; i++) {
+      if (proposalsStore[keys[i]].status === 'accepted') return true;
+    }
+    return false;
+  }
+
   function addProposal(proposal, spaceId) {
     if (spaceId && spaceId !== currentSpaceId) return;
     var list = $('proposalList');
     removeEmptyState(list);
 
+    // Store for chain tracking
+    var pid = proposal.id || proposal.proposal_id || '';
+    if (pid) proposalsStore[pid] = proposal;
+
     var proposerId = proposal.proposer_id || proposal.agent_id || '?';
     var color = getAgentColor(proposerId);
 
     var card = el('div', 'proposal-card');
-    card.dataset.proposalId = proposal.id || proposal.proposal_id || '';
+    card.dataset.proposalId = pid;
+
+    // Chain depth
+    var depth = getChainDepth(proposal);
+    if (depth > 0) card.dataset.chainDepth = String(depth);
+
+    // Type badge
+    var ptype = proposal.proposal_type || (depth === 0 ? 'initial' : 'counter');
+    var badge = el('span', 'proposal-type-badge ' + ptype, ptype.toUpperCase().replace(/_/g, ' '));
 
     var header = el('div', 'proposal-header');
     var idEl = el('span', 'proposal-id');
     idEl.style.color = color;
     idEl.textContent = proposal.proposer_name || proposerId;
     var status = proposal.status || 'pending';
+    header.appendChild(badge);
     header.appendChild(idEl);
     header.appendChild(el('span', 'proposal-status ' + status, status));
     card.appendChild(header);
@@ -727,11 +1191,24 @@
     }
 
     list.appendChild(card);
+
+    // CONVERGED indicator — any accepted proposal triggers it
+    if (status === 'accepted' && !list.querySelector('.proposal-converged')) {
+      var sep = el('div', 'proposal-chain-separator', '');
+      var badge2 = el('div', 'proposal-converged', 'CONVERGED');
+      list.appendChild(sep);
+      list.appendChild(badge2);
+    }
   }
 
   function updateProposalStatus(payload) {
     if (!payload) return;
-    var card = document.querySelector('[data-proposal-id="' + payload.proposal_id + '"]');
+    // Sync store
+    var pid = payload.proposal_id;
+    if (pid && proposalsStore[pid]) {
+      proposalsStore[pid].status = payload.action || 'pending';
+    }
+    var card = document.querySelector('[data-proposal-id="' + pid + '"]');
     if (card) {
       var badge = card.querySelector('.proposal-status');
       if (badge) {
@@ -739,20 +1216,81 @@
         badge.textContent = payload.action || 'pending';
       }
     }
+    // Show CONVERGED on accept
+    if (payload.action === 'accepted') {
+      var list = $('proposalList');
+      if (list && !list.querySelector('.proposal-converged')) {
+        var sep = el('div', 'proposal-chain-separator', '');
+        var convBadge = el('div', 'proposal-converged', 'CONVERGED');
+        list.appendChild(sep);
+        list.appendChild(convBadge);
+      }
+    }
   }
 
   // ── Space info ────────────────────────────────────────────
+
+  // State transition history for timeline visualization
+  var stateTransitions = [];
 
   function updateSpaceStatus(payload) {
     if (!payload) return;
     if (payload.space_id === currentSpaceId) {
       $('spaceStatus').textContent = payload.new_status || '';
+
+      // Record transition for timeline
+      if (payload.old_status && payload.new_status) {
+        stateTransitions.push({
+          from: payload.old_status,
+          to: payload.new_status,
+          at: Date.now(),
+          trigger: payload.trigger || '',
+          agent_id: payload.agent_id || ''
+        });
+        renderStateTimeline();
+      }
+    }
+  }
+
+  function renderStateTimeline() {
+    var container = $('stateTimeline');
+    if (!container || stateTransitions.length === 0) return;
+    container.style.display = '';
+    var html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">State Timeline</div>';
+    for (var i = stateTransitions.length - 1; i >= 0; i--) {
+      var t = stateTransitions[i];
+      var fromColor = statusColor(t.from);
+      var toColor = statusColor(t.to);
+      var timeStr = new Date(t.at).toLocaleTimeString();
+      html += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;font-family:var(--font-mono)">';
+      html += '<span style="color:' + fromColor + '">' + t.from + '</span>';
+      html += '<span style="color:var(--text-dim)">→</span>';
+      html += '<span style="color:' + toColor + ';font-weight:600">' + t.to + '</span>';
+      if (t.trigger) html += '<span style="color:var(--text-dim);font-size:10px;margin-left:4px">[' + t.trigger + ']</span>';
+      html += '<span style="color:var(--text-dim);font-size:10px;margin-left:auto">' + timeStr + '</span>';
+      html += '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function statusColor(status) {
+    switch (status) {
+      case 'created': return '#888';
+      case 'active': return 'var(--protocol)';
+      case 'concluded': return 'var(--status-active)';
+      case 'cancelled': return 'var(--status-cancelled)';
+      case 'expired': return 'var(--signal)';
+      default: return 'var(--text-dim)';
     }
   }
 
   function updateSpaceInfo(payload) {
     if (!payload) return;
     if (payload.status) $('spaceStatus').textContent = payload.status;
+    if (payload.version != null) {
+      var verEl = $('versionStatus');
+      if (verEl) verEl.textContent = 'v' + payload.version;
+    }
     if (payload.round != null) {
       var roundLabel = t('theater.round') + ': ' + payload.round;
       $('spaceRound').textContent = roundLabel;
@@ -762,6 +1300,604 @@
       if (payload.rules.visibility) $('ruleVisibility').textContent = 'visibility: ' + payload.rules.visibility;
       if (payload.rules.reveal_mode) $('ruleReveal').textContent = 'reveal: ' + payload.rules.reveal_mode;
       if (payload.rules.max_participants) $('ruleParticipants').textContent = t('theater.participants') + ': ' + payload.rules.max_participants;
+      // Capacity indicator
+      var capEl = $('capacityStatus');
+      if (payload.rules.max_messages || payload.rules.max_proposals) {
+        var parts = [];
+        if (payload.rules.max_messages) parts.push('msg:' + payload.rules.max_messages);
+        if (payload.rules.max_proposals) parts.push('prop:' + payload.rules.max_proposals);
+        capEl.textContent = 'cap: ' + parts.join(' | ');
+        capEl.style.borderColor = 'var(--protocol)';
+        capEl.style.color = 'var(--protocol)';
+      } else {
+        capEl.textContent = 'cap: unlimited';
+        capEl.style.borderColor = '#555';
+        capEl.style.color = '#888';
+      }
+    }
+  }
+
+  // ── Message sending ────────────────────────────────────────
+
+  var msgInput = $('msgInput');
+  var sendBtn = $('sendBtn');
+
+  function updateSendBtn() {
+    var hasText = msgInput.value.trim().length > 0;
+    var hasWs = ws && ws.readyState === WebSocket.OPEN;
+    var hasSpace = !!currentSpaceId;
+    sendBtn.disabled = !(hasText && hasWs && hasSpace);
+  }
+
+  msgInput.addEventListener('input', function () {
+    updateSendBtn();
+    // Auto-resize textarea
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+
+  msgInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  sendBtn.addEventListener('click', function () { sendMessage(); });
+
+  function sendMessage() {
+    var text = msgInput.value.trim();
+    if (!text || !currentSpaceId || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    sendTracked({
+      type: 'send_message',
+      space_id: currentSpaceId,
+      payload: {
+        msg_type: 'text',
+        content: text
+      },
+      idempotency_key: crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2))
+    });
+
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    updateSendBtn();
+    msgInput.focus();
+  }
+
+  // ── Phase 14: Shared State Panel ────────────────────────
+
+  // Tab switching
+  document.querySelector('.theater-tab-bar').addEventListener('click', function (e) {
+    var tab = e.target.closest('.theater-tab');
+    if (!tab) return;
+    var panel = tab.dataset.panel;
+    var tabs = document.querySelectorAll('.theater-tab');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i] === tab);
+    $('proposalList').style.display = panel === 'proposalList' ? '' : 'none';
+    $('statePanel').style.display = panel === 'statePanel' ? '' : 'none';
+    $('tracePanel').style.display = panel === 'tracePanel' ? '' : 'none';
+    if (panel === 'statePanel' && currentSpaceId) loadSharedState();
+    if (panel === 'tracePanel' && currentSpaceId) { loadTrace(); loadTraceStats(); }
+  });
+
+  $('stateRefreshBtn').addEventListener('click', function () { loadSharedState(); });
+
+  $('stateEventsToggle').addEventListener('click', function () {
+    var log = $('stateEventsLog');
+    var showing = log.style.display !== 'none';
+    log.style.display = showing ? 'none' : '';
+    this.textContent = showing ? '▼ Event Log' : '▲ Event Log';
+    if (!showing && currentSpaceId) loadStateEvents();
+  });
+
+  $('stateSetBtn').addEventListener('click', function () { setStateKey(); });
+  $('stateValueInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); setStateKey(); }
+  });
+
+  function loadSharedState() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/state', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderStateSnapshot(data);
+    })
+    .catch(function (err) {
+      console.error('Failed to load shared state:', err);
+    });
+    // Also load reality alignment
+    loadRealityAlignment();
+    // Load chain integrity
+    loadChainIntegrity();
+    // Load state integrity
+    loadStateIntegrity();
+  }
+
+  function loadRealityAlignment() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/reality-sync', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderRealityAlignment(data);
+    })
+    .catch(function () {
+      var el = $('realityAlignment');
+      if (el) el.style.display = 'none';
+    });
+  }
+
+  function renderRealityAlignment(data) {
+    var container = $('realityAlignment');
+    var bars = $('realityAgentBars');
+    var badge = $('realitySyncBadge');
+    if (!container || !data || !data.agents) return;
+
+    if (data.agents.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+    container.style.display = '';
+
+    var allSynced = data.all_aligned;
+    badge.textContent = allSynced ? 'ALIGNED' : 'DRIFT';
+    badge.className = 'reality-sync-badge ' + (allSynced ? 'all-synced' : 'drift');
+
+    var currentVer = data.current_version || 1;
+    bars.innerHTML = '';
+    for (var i = 0; i < data.agents.length; i++) {
+      var a = data.agents[i];
+      var row = document.createElement('div');
+      row.className = 'reality-agent-row';
+
+      var idSpan = document.createElement('span');
+      idSpan.className = 'reality-agent-id';
+      idSpan.textContent = a.agent_id.substring(0, 8);
+      idSpan.title = a.agent_id;
+
+      var track = document.createElement('div');
+      track.className = 'reality-bar-track';
+
+      var fill = document.createElement('div');
+      var pct = currentVer > 0 ? Math.min(100, (a.last_seen_version / currentVer) * 100) : 100;
+      fill.className = 'reality-bar-fill ' + (a.in_sync ? 'synced' : 'behind');
+      fill.style.width = pct + '%';
+
+      track.appendChild(fill);
+
+      var verSpan = document.createElement('span');
+      verSpan.className = 'reality-agent-ver';
+      verSpan.textContent = 'v' + a.last_seen_version;
+
+      row.appendChild(idSpan);
+      row.appendChild(track);
+      row.appendChild(verSpan);
+      bars.appendChild(row);
+    }
+  }
+
+  function loadStateIntegrity() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/state/integrity', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderStateIntegrity(data);
+    })
+    .catch(function () {
+      var el = $('stateIntegrityBadge');
+      if (el) el.style.display = 'none';
+    });
+  }
+
+  function renderStateIntegrity(data) {
+    var el = $('stateIntegrityBadge');
+    if (!el || !data) return;
+    if (!data.current_version || data.current_version === 0) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    var ok = data.state_integrity === 'consistent';
+    el.textContent = ok ? 'STATE OK' : 'STATE DIVERGENT';
+    el.className = 'chain-integrity-badge ' + (ok ? 'intact' : 'compromised');
+    el.title = ok
+      ? data.materialized_entries + ' entries verified consistent with event log'
+      : data.divergences ? data.divergences.join('; ') : 'State diverges from event log reconstruction';
+  }
+
+  function loadChainIntegrity() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/state/verify-chain', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderChainIntegrity(data);
+    })
+    .catch(function () {
+      var el = $('chainIntegrity');
+      if (el) el.style.display = 'none';
+    });
+  }
+
+  function renderChainIntegrity(data) {
+    var el = $('chainIntegrity');
+    if (!el) return;
+    if (!data || data.total_events === 0) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    var badge = $('chainIntegrityBadge');
+    var info = $('chainInfo');
+    if (!badge || !info) return;
+    var isIntact = data.chain_integrity === 'intact';
+    badge.textContent = isIntact ? 'CHAIN OK' : 'CHAIN ' + data.failed + ' FAIL';
+    badge.className = 'chain-integrity-badge ' + (isIntact ? 'intact' : 'compromised');
+    var hash = data.latest_hash ? data.latest_hash.substring(0, 12) + '...' : 'none';
+    info.textContent = data.total_events + ' events \u00b7 hash ' + hash;
+  }
+
+  function renderStateSnapshot(snapshot) {
+    var version = snapshot.version || 0;
+    $('stateVersion').textContent = 'v' + version;
+
+    // Update cursor in footer
+    var cursorEl = $('cursorStatus');
+    if (cursorEl) cursorEl.textContent = 'cursor: v' + version;
+
+    var container = $('stateEntries');
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (!snapshot.entries || snapshot.entries.length === 0) {
+      var empty = el('div', 'theater-empty');
+      empty.appendChild(el('span', null, t('theater.no-state') || '暂无共享状态'));
+      container.appendChild(empty);
+      renderStateTimeline(0, []);
+      return;
+    }
+
+    // Build timeline data from entries
+    renderStateTimeline(version, snapshot.entries);
+
+    for (var i = 0; i < snapshot.entries.length; i++) {
+      var entry = snapshot.entries[i];
+      var div = el('div', 'state-entry');
+      var keySpan = el('span', 'state-entry-key', entry.key);
+      var valSpan = el('span', 'state-entry-value', JSON.stringify(entry.value));
+      var meta = el('div', 'state-entry-meta', 'v' + entry.version + ' \u00b7 ' + truncateId(entry.author_id, 8));
+      div.appendChild(keySpan);
+      div.appendChild(document.createTextNode('= '));
+      div.appendChild(valSpan);
+      div.appendChild(meta);
+      container.appendChild(div);
+    }
+  }
+
+  // ── State Timeline Visualization ──────────────────────────
+
+  function renderStateTimeline(currentVersion, entries) {
+    var container = $('stateTimeline');
+    if (!container) return;
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (currentVersion === 0) {
+      container.style.display = 'none';
+      return;
+    }
+    container.style.display = '';
+
+    // Create version nodes: show last N versions (max 12)
+    var maxNodes = 12;
+    var versions = [];
+    // Collect unique versions from entries
+    var seen = {};
+    for (var i = 0; i < entries.length; i++) {
+      var v = entries[i].version;
+      if (!seen[v]) { seen[v] = []; versions.push(v); }
+      seen[v].push(entries[i]);
+    }
+    versions.sort(function (a, b) { return a - b; });
+
+    // Show last maxNodes versions
+    var startIdx = Math.max(0, versions.length - maxNodes);
+    var displayVersions = versions.slice(startIdx);
+
+    var timeline = el('div', 'timeline-track');
+
+    for (var j = 0; j < displayVersions.length; j++) {
+      var ver = displayVersions[j];
+      var node = el('div', 'timeline-node' + (ver === currentVersion ? ' timeline-node-active' : ''));
+      var dot = el('span', 'timeline-dot');
+      dot.style.background = ver === currentVersion ? 'var(--protocol)' : 'var(--border2)';
+      node.appendChild(dot);
+
+      // Version label
+      var label = el('span', 'timeline-label', 'v' + ver);
+      node.appendChild(label);
+
+      // Key changes at this version
+      var entries_at_v = seen[ver] || [];
+      for (var k = 0; k < entries_at_v.length && k < 2; k++) {
+        var keyTag = el('span', 'timeline-key', entries_at_v[k].key);
+        node.appendChild(keyTag);
+      }
+      if (entries_at_v.length > 2) {
+        var more = el('span', 'timeline-more', '+' + (entries_at_v.length - 2));
+        node.appendChild(more);
+      }
+
+      timeline.appendChild(node);
+
+      // Connector line between nodes
+      if (j < displayVersions.length - 1) {
+        var line = el('div', 'timeline-line');
+        timeline.appendChild(line);
+      }
+    }
+
+    container.appendChild(timeline);
+  }
+
+  function loadStateEvents() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/events?limit=20', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderStateEvents(data.events || []);
+    })
+    .catch(function (err) {
+      console.error('Failed to load events:', err);
+    });
+  }
+
+  function renderStateEvents(events) {
+    var container = $('stateEventsLog');
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (events.length === 0) {
+      container.appendChild(el('div', 'theater-empty', 'No events yet'));
+      return;
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      var div = el('div', 'state-event');
+      var typeSpan = el('span', 'state-event-type ' + ev.event_type, ev.event_type.toUpperCase());
+      div.appendChild(typeSpan);
+      div.appendChild(document.createTextNode(ev.key + ' '));
+      if (ev.new_value) {
+        div.appendChild(document.createTextNode('→ ' + JSON.stringify(ev.new_value).substring(0, 60)));
+      } else {
+        div.appendChild(document.createTextNode('→ DELETED'));
+      }
+      var meta = el('div', 'state-event-meta', 'v' + ev.space_version + ' · ' + truncateId(ev.author_id, 8) + ' · ' + new Date(ev.timestamp).toLocaleTimeString());
+      div.appendChild(meta);
+      container.appendChild(div);
+    }
+  }
+
+  function setStateKey() {
+    if (!currentSpaceId) return;
+    var key = $('stateKeyInput').value.trim();
+    var valueStr = $('stateValueInput').value.trim();
+    if (!key || !valueStr) return;
+
+    var value;
+    try {
+      value = JSON.parse(valueStr);
+    } catch (e) {
+      // 如果不是有效 JSON，当作字符串处理
+      value = valueStr;
+    }
+
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/state/' + encodeURIComponent(key), {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'Bearer ' + cfg.apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ value: value })
+    }).then(function (r) { return r.json(); })
+    .then(function (result) {
+      $('stateKeyInput').value = '';
+      $('stateValueInput').value = '';
+      loadSharedState();
+    })
+    .catch(function (err) {
+      console.error('Failed to set state:', err);
+    });
+  }
+
+  function truncateId(id, len) {
+    if (!id) return '?';
+    return id.length > len ? id.substring(0, len) + '...' : id;
+  }
+
+  // ── Phase 14b: Structured Audit Trace Panel ────────────────
+
+  $('traceRefreshBtn').addEventListener('click', function () { loadTrace(); loadTraceStats(); });
+  $('traceFilterAction').addEventListener('change', function () { loadTrace(); });
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(String(s)));
+    return d.innerHTML;
+  }
+
+  function loadTraceStats() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    // Reuse the trace endpoint with stats=true
+    fetch(baseUrl + '/api/v1/spaces/' + currentSpaceId + '/trace?limit=1&stats=true', {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.stats) renderTraceStats(data.stats);
+    })
+    .catch(function () {});
+  }
+
+  function renderTraceStats(data) {
+    var bar = $('traceStatsBar');
+    if (!bar) return;
+    bar.style.display = 'flex';
+    var cats = data.by_category || {};
+    $('statNeg').textContent = cats.negotiation || 0;
+    $('statState').textContent = cats.state || 0;
+    $('statExec').textContent = cats.execution || 0;
+    $('statInst').textContent = cats.institution || 0;
+    $('statSec').textContent = cats.security || 0;
+    $('statTotal').textContent = (data.total || 0) + ' total';
+  }
+
+  function loadTrace() {
+    if (!currentSpaceId) return;
+    var cfg = getCfg();
+    var baseUrl = cfg.baseUrl || window.location.origin;
+    var action = $('traceFilterAction').value;
+    var url = baseUrl + '/api/v1/spaces/' + currentSpaceId + '/trace?limit=100';
+    if (action) url += '&action=' + encodeURIComponent(action);
+    fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey }
+    }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderTrace(data.entries || []);
+    })
+    .catch(function (err) {
+      console.error('Failed to load trace:', err);
+    });
+  }
+
+  var actionCategoryMap = {
+    space_created: 'negotiation', space_joined: 'negotiation', space_left: 'negotiation',
+    space_closed: 'negotiation', space_status_transition: 'negotiation',
+    message_sent: 'negotiation', proposal_submitted: 'negotiation',
+    proposal_responded: 'negotiation', best_terms_shared: 'negotiation',
+    round_advanced: 'negotiation', rfp_created: 'negotiation',
+    proposals_evaluated: 'negotiation',
+    state_set: 'state', state_deleted: 'state',
+    contract_created: 'execution', milestone_submitted: 'execution',
+    milestone_accepted: 'execution',
+    rules_updated: 'institution', coalition_created: 'institution',
+    coalition_joined: 'institution', coalition_left: 'institution',
+    delegation_created: 'institution', delegation_revoked: 'institution',
+    recruitment_created: 'institution', recruitment_accepted: 'institution',
+    rule_check_denied: 'security', chain_verified: 'security'
+  };
+
+  var categoryColors = {
+    negotiation: '#7eb8da', state: '#b388ff', execution: '#ffab40',
+    institution: '#80cbc4', security: '#ff6b6b'
+  };
+
+  function renderTrace(entries) {
+    var container = $('traceEntries');
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (entries.length === 0) {
+      var empty = el('div', 'theater-empty');
+      empty.appendChild(el('span', null, 'No audit entries match filter'));
+      container.appendChild(empty);
+      return;
+    }
+
+    // Group entries by correlation_id (if present) for visual grouping
+    var groups = [];
+    var corrMap = {};
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (e.correlation_id && corrMap[e.correlation_id] !== undefined) {
+        groups[corrMap[e.correlation_id]].items.push(e);
+      } else {
+        if (e.correlation_id) corrMap[e.correlation_id] = groups.length;
+        groups.push({ correlation_id: e.correlation_id, items: [e] });
+      }
+    }
+
+    for (var g = 0; g < groups.length; g++) {
+      var group = groups[g];
+      for (var j = 0; j < group.items.length; j++) {
+        var entry = group.items[j];
+        var div = el('div', 'trace-entry');
+        if (group.correlation_id && group.items.length > 1) {
+          div.classList.add('trace-correlated');
+        }
+
+        var header = el('div', 'trace-header');
+        var cat = actionCategoryMap[entry.action] || 'negotiation';
+        var actionColor = categoryColors[cat] || '#aaa';
+
+        // Category indicator dot
+        var catDot = el('span', 'trace-cat-dot');
+        catDot.style.background = actionColor;
+        catDot.title = cat;
+        header.appendChild(catDot);
+
+        var actionSpan = el('span', 'trace-action');
+        actionSpan.style.color = actionColor;
+        actionSpan.style.borderColor = actionColor;
+        actionSpan.appendChild(document.createTextNode(esc(entry.action.replace(/_/g, ' '))));
+        header.appendChild(actionSpan);
+
+        var agentSpan = el('span', 'trace-agent', truncateId(entry.agent_id, 10));
+        header.appendChild(agentSpan);
+
+        // State version badge
+        if (entry.state_version != null) {
+          var verBadge = el('span', 'trace-ver-badge', 'v' + entry.state_version);
+          header.appendChild(verBadge);
+        }
+
+        var time = new Date(entry.created_at);
+        var timeSpan = el('span', 'trace-time', time.toLocaleTimeString());
+        header.appendChild(timeSpan);
+
+        div.appendChild(header);
+
+        if (entry.target_type || entry.target_id) {
+          var target = el('div', 'trace-target');
+          target.appendChild(document.createTextNode(
+            (entry.target_type ? esc(entry.target_type) + ': ' : '') +
+            (entry.target_id ? truncateId(entry.target_id, 12) : '')
+          ));
+          div.appendChild(target);
+        }
+
+        // Expandable details
+        if (entry.details) {
+          var detailsToggle = el('button', 'trace-details-toggle');
+          detailsToggle.textContent = '▸ details';
+          detailsToggle.setAttribute('aria-label', 'Toggle details');
+          detailsToggle.setAttribute('aria-expanded', 'false');
+          var detailsDiv = el('div', 'trace-details-expanded');
+          detailsDiv.style.display = 'none';
+          var detailsStr = JSON.stringify(entry.details, null, 2);
+          detailsDiv.appendChild(document.createTextNode(detailsStr));
+          (function (toggle, detail) {
+            toggle.addEventListener('click', function () {
+              var open = detail.style.display !== 'none';
+              detail.style.display = open ? 'none' : '';
+              toggle.textContent = open ? '▸ details' : '▾ details';
+              toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+            });
+          })(detailsToggle, detailsDiv);
+          div.appendChild(detailsToggle);
+          div.appendChild(detailsDiv);
+        }
+
+        container.appendChild(div);
+      }
     }
   }
 

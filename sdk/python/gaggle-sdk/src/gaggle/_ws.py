@@ -89,6 +89,7 @@ class WSConnectionManager:
         self._running = False
         self._last_event_seq: int = 0
         self._heartbeat: Heartbeat | None = None
+        self._space_versions: dict[str, int] = {}  # space_id → last known state version
 
     def on(self, event_type: str) -> Callable[[EventHandler], EventHandler]:
         """Decorator to register async handler for a WS event type.
@@ -337,6 +338,26 @@ class WSConnectionManager:
             request_id: Optional request ID.
         """
         await self._send_with_request_id({"type": "join_space", "space_id": space_id}, request_id)
+
+    async def sync_state(self, space_id: str, last_known_version: int | None = None):
+        """Request shared state delta for a space.
+
+        Sends a sync_state command to the server. If the agent's local
+        state version is behind the server's, the server responds with a
+        ``state_delta`` event containing all state events since the given
+        version. The SDK automatically tracks known versions.
+
+        Args:
+            space_id: ID of the space to sync.
+            last_known_version: Override version (default: tracked version or 0).
+        """
+        version = last_known_version if last_known_version is not None else self._space_versions.get(space_id, 0)
+        await self._send_command({
+            "type": "sync_state",
+            "space_id": space_id,
+            "last_known_version": version if version > 0 else None,
+        })
+        logger.debug(f"Sent sync_state for {space_id} (version={version})")
 
     async def leave_space(self, space_id: str, *, request_id: str | None = None):
         """Send leave_space command via WebSocket.
@@ -670,6 +691,8 @@ class WSConnectionManager:
 
         Checks pending request-response futures first, then dispatches
         to registered event handlers as non-blocking tasks.
+        If the message carries ``event_seq``, sends a cumulative ACK back
+        to the server so events are marked as delivered.
 
         Args:
             raw: Raw JSON string from WebSocket.
@@ -678,9 +701,22 @@ class WSConnectionManager:
             data = json.loads(raw)
             event_type = data.get("type", "")
 
-            # Track event sequence for resume
+            # Track event sequence for resume and send cumulative ACK
             if "event_seq" in data:
                 self._last_event_seq = data["event_seq"]
+                await self._send_command({"type": "event_ack", "event_seq": self._last_event_seq})
+
+            # Track state versions from state_delta responses
+            if event_type == "state_delta":
+                space_id = data.get("space_id", "")
+                to_version = data.get("to_version", 0)
+                if space_id and to_version:
+                    self._space_versions[space_id] = to_version
+                    logger.info(
+                        f"State delta received for {space_id}: "
+                        f"v{data.get('from_version', 0)} → v{to_version}, "
+                        f"{len(data.get('events', []))} events"
+                    )
 
             # Check if this resolves a pending ask() request
             if self._try_resolve_pending(data):

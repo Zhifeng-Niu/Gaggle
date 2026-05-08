@@ -148,6 +148,27 @@ async fn handle_gateway_socket(socket: axum::extract::ws::WebSocket, state: AppS
     // ── 2. 注册到在线连接表（多连接支持） ──────────────
     let now_ts = chrono::Utc::now().timestamp_millis();
     let conn_id = super::ws::NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // 连接数上限检查
+    let max_conns_per_agent: usize = std::env::var("MAX_WS_CONNS_PER_AGENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    {
+        let online = state.online_agents.read().await;
+        let current_count = online.get(&agent.id).map(|c| c.len()).unwrap_or(0);
+        drop(online);
+        if current_count >= max_conns_per_agent {
+            let error = serde_json::to_string(&OpenClawOutgoing::Error {
+                code: "TOO_MANY_CONNECTIONS".to_string(),
+                message: format!("Max {} concurrent connections per agent", max_conns_per_agent),
+                space_id: None,
+            }).unwrap_or_default();
+            let _ = sender.send(axum::extract::ws::Message::Text(error)).await;
+            return;
+        }
+    }
+
     let personal_tx = {
         let (tx, _rx) = broadcast::channel::<String>(256);
         let mut online = state.online_agents.write().await;
@@ -333,7 +354,8 @@ async fn handle_openclaw_message(
         },
         OpenClawIncoming::JoinSpace { space_id } => WsIncoming::JoinSpace {
             request_id: None,
-            space_id,
+            space_id: Some(space_id),
+            payload: None,
         },
         OpenClawIncoming::SendMessage {
             space_id,
@@ -351,6 +373,7 @@ async fn handle_openclaw_message(
                     metadata,
                     proposal: None,
                 },
+                idempotency_key: None,
             }
         }
         OpenClawIncoming::SubmitProposal {
@@ -365,7 +388,9 @@ async fn handle_openclaw_message(
                 proposal_type,
                 dimensions,
                 parent_proposal_id,
+                expected_version: None,
             },
+            idempotency_key: None,
         },
         OpenClawIncoming::CloseSpace {
             space_id,

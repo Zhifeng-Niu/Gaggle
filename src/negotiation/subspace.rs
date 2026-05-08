@@ -83,14 +83,27 @@ impl SubSpace {
         self.agent_ids.contains(&agent_id.to_string())
     }
 
-    /// 关闭子空间
-    pub fn close(&mut self, concluded: bool) {
-        self.status = if concluded {
+    /// 关闭子空间 — only legal from Created or Active.
+    pub fn close(&mut self, concluded: bool, trigger: &str, closer_id: Option<&str>) -> Result<(), String> {
+        let target = if concluded {
             SpaceStatus::Concluded
         } else {
             SpaceStatus::Cancelled
         };
+        if !self.status.can_transition_to(&target) {
+            return Err(format!(
+                "cannot close sub-space: current status is {:?}, which is terminal",
+                self.status
+            ));
+        }
+        tracing::info!(
+            subspace_id = %self.id, from = ?self.status, to = ?target,
+            trigger = %trigger, closer_id = ?closer_id,
+            "SubSpace status transition"
+        );
+        self.status = target;
         self.closed_at = Some(Utc::now().timestamp_millis());
         self.updated_at = Utc::now().timestamp_millis();
+        Ok(())
     }
 }

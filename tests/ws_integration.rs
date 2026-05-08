@@ -12,15 +12,37 @@ type WsStream = tokio_tungstenite::WebSocketStream<
 type WsSink = futures_util::stream::SplitSink<WsStream, Message>;
 type WsRx = futures_util::stream::SplitStream<WsStream>;
 
-/// Register agent via REST, return (agent_id, api_key).
+/// Register a user, return the user API key (usr_*).
+async fn register_user(
+    client: &reqwest::Client,
+    base_url: &str,
+    email: &str,
+) -> String {
+    let resp = client
+        .post(format!("{base_url}/api/v1/users/register"))
+        .json(&serde_json::json!({
+            "email": email,
+            "password": "test_password_123",
+            "display_name": email.split('@').next().unwrap(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "user register failed: {} {}", resp.status(), resp.text().await.unwrap_or_default());
+    let body: serde_json::Value = resp.json().await.unwrap();
+    body["api_key"].as_str().unwrap().to_string()
+}
+
+/// Register agent via REST under a user, return (agent_id, api_key).
 async fn register_agent(
     client: &reqwest::Client,
     base_url: &str,
+    user_api_key: &str,
     name: &str,
 ) -> (String, String) {
     let resp = client
         .post(format!("{base_url}/api/v1/agents/register"))
-        .bearer_auth("test_key")
+        .bearer_auth(user_api_key)
         .json(&serde_json::json!({"agent_type": "consumer", "name": name}))
         .send()
         .await
@@ -83,7 +105,8 @@ async fn test_ws_connect_and_ping_pong() {
     let (base_url, _server) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    let (agent_id, api_key) = register_agent(&client, &base_url, "WSPingAgent").await;
+    let user_key = register_user(&client, &base_url, "ws-ping@example.com").await;
+    let (agent_id, api_key) = register_agent(&client, &base_url, &user_key, "WSPingAgent").await;
     let (mut tx, mut rx) = connect_ws(&base_url, &agent_id, &api_key).await;
 
     // Drain any initial messages
@@ -107,7 +130,8 @@ async fn test_ws_create_space() {
     let (base_url, _server) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    let (agent_id, api_key) = register_agent(&client, &base_url, "WSCreator").await;
+    let user_key = register_user(&client, &base_url, "ws-space@example.com").await;
+    let (agent_id, api_key) = register_agent(&client, &base_url, &user_key, "WSCreator").await;
     let (mut tx, mut rx) = connect_ws(&base_url, &agent_id, &api_key).await;
 
     // Drain initial messages
@@ -142,9 +166,10 @@ async fn test_ws_message_broadcast() {
     let (base_url, _server) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    // Register two agents
-    let (agent_a_id, agent_a_key) = register_agent(&client, &base_url, "AgentA").await;
-    let (agent_b_id, agent_b_key) = register_agent(&client, &base_url, "AgentB").await;
+    // Register user and two agents
+    let user_key = register_user(&client, &base_url, "ws-bcast@example.com").await;
+    let (agent_a_id, agent_a_key) = register_agent(&client, &base_url, &user_key, "AgentA").await;
+    let (agent_b_id, agent_b_key) = register_agent(&client, &base_url, &user_key, "AgentB").await;
 
     // Connect both via WS
     let (mut tx_a, mut rx_a) = connect_ws(&base_url, &agent_a_id, &agent_a_key).await;
@@ -221,4 +246,101 @@ async fn test_ws_message_broadcast() {
         "B should receive new_message, got: {msg_b:?}"
     );
     assert_eq!(msg_b["payload"]["message"]["content"], "Hello from A!");
+}
+
+#[tokio::test]
+async fn test_ws_request_id_correlation() {
+    let (base_url, _server) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let user_key = register_user(&client, &base_url, "ws-corr@example.com").await;
+    let (agent_id, api_key) = register_agent(&client, &base_url, &user_key, "CorrAgent").await;
+    let (mut tx, mut rx) = connect_ws(&base_url, &agent_id, &api_key).await;
+
+    // Drain initial messages
+    let _ = drain_messages(&mut rx, 5).await;
+
+    // 1. Ping with request_id → Pong should echo it back
+    let ping = serde_json::json!({
+        "type": "ping",
+        "request_id": "ping_42",
+        "timestamp": 99999
+    });
+    tx.send(Message::Text(ping.to_string())).await.unwrap();
+    let pong = read_json(&mut rx).await;
+    assert_eq!(pong["type"], "pong", "expected pong, got: {pong:?}");
+    assert_eq!(pong["request_id"], "ping_42", "pong should echo request_id");
+
+    // 2. ListSpaces with request_id → SpacesList should echo it back
+    let list = serde_json::json!({
+        "type": "list_spaces",
+        "request_id": "list_99"
+    });
+    tx.send(Message::Text(list.to_string())).await.unwrap();
+    let spaces = read_json(&mut rx).await;
+    assert_eq!(spaces["type"], "spaces_list", "expected spaces_list, got: {spaces:?}");
+    assert_eq!(spaces["request_id"], "list_99", "spaces_list should echo request_id");
+
+    // 3. CreateSpace with request_id → Ack should echo it back
+    let create = serde_json::json!({
+        "type": "create_space",
+        "request_id": "create_007",
+        "payload": {
+            "name": "Correlation Test",
+            "invitee_ids": [],
+            "context": {}
+        }
+    });
+    tx.send(Message::Text(create.to_string())).await.unwrap();
+    let ack = read_json(&mut rx).await;
+    assert_eq!(ack["type"], "ack", "expected ack, got: {ack:?}");
+    assert_eq!(ack["request_id"], "create_007", "ack should echo request_id");
+    assert_eq!(ack["result"], "ok");
+    let space_id = ack["space_id"].as_str().unwrap().to_string();
+
+    // Drain space_created broadcast
+    let _ = drain_messages(&mut rx, 5).await;
+
+    // 4. SyncState with request_id → StateDelta should echo it back
+    let sync = serde_json::json!({
+        "type": "sync_state",
+        "request_id": "sync_001",
+        "space_id": space_id,
+        "last_known_version": 0
+    });
+    tx.send(Message::Text(sync.to_string())).await.unwrap();
+    let delta = read_json(&mut rx).await;
+    assert_eq!(delta["type"], "state_delta", "expected state_delta, got: {delta:?}");
+    assert_eq!(delta["request_id"], "sync_001", "state_delta should echo request_id");
+}
+
+#[tokio::test]
+async fn test_ws_error_includes_request_id() {
+    let (base_url, _server) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+
+    let user_key = register_user(&client, &base_url, "ws-errcorr@example.com").await;
+    let (agent_id, api_key) = register_agent(&client, &base_url, &user_key, "ErrCorrAgent").await;
+    let (mut tx, mut rx) = connect_ws(&base_url, &agent_id, &api_key).await;
+
+    // Drain initial messages
+    let _ = drain_messages(&mut rx, 5).await;
+
+    // Send invalid JSON with request_id — parse error should NOT include request_id
+    // (parsing happens before request_id extraction)
+    // Instead, send a valid but failing command with request_id
+    let bad_sync = serde_json::json!({
+        "type": "sync_state",
+        "request_id": "err_sync_42",
+        "space_id": "nonexistent_space",
+        "last_known_version": 0
+    });
+    tx.send(Message::Text(bad_sync.to_string())).await.unwrap();
+    let err = read_json(&mut rx).await;
+    assert_eq!(err["type"], "error", "expected error, got: {err:?}");
+    assert_eq!(
+        err["request_id"], "err_sync_42",
+        "error should echo request_id for correlation"
+    );
+    assert_eq!(err["payload"]["code"], "NOT_FOUND");
 }

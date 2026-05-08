@@ -40,8 +40,9 @@ const COL_BUYER_ID: usize = 13;
 const COL_SELLER_ID: usize = 14;
 const COL_RULES: usize = 15;
 const COL_PENDING_JOINS: usize = 16;
+const COL_VERSION: usize = 17;
 
-const SPACE_COLUMNS: &str = "id, name, creator_id, agent_ids, joined_agent_ids, status, space_type, rfp_context, context, encryption_key, created_at, updated_at, closed_at, buyer_id, seller_id, rules, pending_join_requests";
+const SPACE_COLUMNS: &str = "id, name, creator_id, agent_ids, joined_agent_ids, status, space_type, rfp_context, context, encryption_key, created_at, updated_at, closed_at, buyer_id, seller_id, rules, pending_join_requests, version";
 
 fn map_space(row: &rusqlite::Row) -> rusqlite::Result<Space> {
     let agent_ids_str: String = row.get(COL_AGENT_IDS)?;
@@ -83,6 +84,7 @@ fn map_space(row: &rusqlite::Row) -> rusqlite::Result<Space> {
             .flatten()
             .and_then(|s: String| serde_json::from_str(&s).ok())
             .unwrap_or_default(),
+        version: row.get(COL_VERSION).ok().unwrap_or(1),
     })
 }
 
@@ -187,6 +189,8 @@ impl SpaceManager {
         // Phase 6: SpaceRules
         let _ = conn.execute("ALTER TABLE spaces ADD COLUMN rules TEXT", []);
         let _ = conn.execute("ALTER TABLE spaces ADD COLUMN pending_join_requests TEXT", []);
+        // Phase P1: Space version for optimistic locking
+        let _ = conn.execute("ALTER TABLE spaces ADD COLUMN version INTEGER NOT NULL DEFAULT 1", []);
 
         // Phase 9: SubSpaces
         Self::init_subspace_table(&conn)?;
@@ -243,7 +247,7 @@ impl SpaceManager {
         {
             let db = self.db.lock().unwrap();
             db.execute(
-                &format!("INSERT INTO spaces ({SPACE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"),
+                &format!("INSERT INTO spaces ({SPACE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"),
                 params![
                     space.id,
                     space.name,
@@ -262,6 +266,7 @@ impl SpaceManager {
                     space.seller_id,
                     serde_json::to_string(&space.rules)?,
                     serde_json::to_string(&space.pending_join_requests)?,
+                    space.version,
                 ],
             )?;
         }
@@ -277,9 +282,13 @@ impl SpaceManager {
 
     /// 持久化 Space 到数据库
     pub(crate) fn persist_space(&self, space: &Space) -> Result<(), GaggleError> {
+        // Optimistic locking: only update if the DB version matches what we loaded.
+        // version was already bumped by bump_version() before this call,
+        // so we check against (space.version - 1).
+        let expected_version = space.version - 1;
         let db = self.db.lock().unwrap();
-        db.execute(
-            "UPDATE spaces SET joined_agent_ids = ?1, agent_ids = ?2, status = ?3, updated_at = ?4, buyer_id = ?5, seller_id = ?6, pending_join_requests = ?7, rules = ?8 WHERE id = ?9",
+        let rows = db.execute(
+            "UPDATE spaces SET joined_agent_ids = ?1, agent_ids = ?2, status = ?3, updated_at = ?4, buyer_id = ?5, seller_id = ?6, pending_join_requests = ?7, rules = ?8, version = ?9 WHERE id = ?10 AND version = ?11",
             params![
                 serde_json::to_string(&space.joined_agent_ids)?,
                 serde_json::to_string(&space.agent_ids)?,
@@ -289,9 +298,17 @@ impl SpaceManager {
                 space.seller_id,
                 serde_json::to_string(&space.pending_join_requests)?,
                 serde_json::to_string(&space.rules)?,
+                space.version,
                 space.id,
+                expected_version,
             ],
         )?;
+        if rows == 0 {
+            return Err(GaggleError::Conflict(format!(
+                "Space {} version conflict: expected {}, space may have been modified concurrently",
+                space.id, expected_version
+            )));
+        }
         Ok(())
     }
 
@@ -349,7 +366,7 @@ impl SpaceManager {
             .await?
             .ok_or_else(|| GaggleError::SpaceNotFound(space_id.to_string()))?;
 
-        if space.status != SpaceStatus::Created && space.status != SpaceStatus::Active {
+        if space.status.is_terminal() {
             return Err(GaggleError::SpaceClosed(
                 "Space is not accepting new members".to_string(),
             ));
@@ -396,6 +413,7 @@ impl SpaceManager {
                         ));
                     }
                     space.pending_join_requests.push((agent.id.clone(), Utc::now().timestamp_millis()));
+                    space.bump_version();
                     self.persist_space(&space)?;
                     self.spaces.insert(space.id.clone(), space.clone());
                     return Err(GaggleError::Forbidden(
@@ -419,7 +437,7 @@ impl SpaceManager {
         // 检查是否所有成员都已加入
         let should_activate = space.all_joined();
         if should_activate {
-            space.activate();
+            let _ = space.activate();
         }
 
         // Phase 13: 检查 OnSpaceActivated 和 OnMemberCount transitions
@@ -429,6 +447,7 @@ impl SpaceManager {
         let member_count = space.joined_agent_ids.len();
         let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnMemberCount { count: member_count });
 
+        space.bump_version();
         self.persist_space(&space)?;
         self.spaces.insert(space.id.clone(), space.clone());
 
@@ -487,12 +506,13 @@ impl SpaceManager {
         }
 
         if space.all_joined() && space.status == SpaceStatus::Created {
-            space.activate();
+            space.activate().map_err(|e| GaggleError::ValidationError(e))?;
             let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnSpaceActivated);
         }
         let member_count = space.joined_agent_ids.len();
         let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnMemberCount { count: member_count });
 
+        space.bump_version();
         self.persist_space(&space)?;
         self.spaces.insert(space.id.clone(), space.clone());
 
@@ -524,7 +544,7 @@ impl SpaceManager {
             .ok_or_else(|| GaggleError::NotFound("No pending join request from this agent".to_string()))?;
 
         space.pending_join_requests.remove(idx);
-        space.updated_at = Utc::now().timestamp_millis();
+        space.bump_version();
 
         self.persist_space(&space)?;
         self.spaces.insert(space.id.clone(), space.clone());
@@ -552,7 +572,7 @@ impl SpaceManager {
         {
             let db = self.db.lock().unwrap();
             db.execute(
-                &format!("INSERT INTO spaces ({SPACE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"),
+                &format!("INSERT INTO spaces ({SPACE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"),
                 params![
                     space.id,
                     space.name,
@@ -571,6 +591,7 @@ impl SpaceManager {
                     space.seller_id,
                     serde_json::to_string(&space.rules)?,
                     serde_json::to_string(&space.pending_join_requests)?,
+                    space.version,
                 ],
             )?;
         }
@@ -601,8 +622,11 @@ impl SpaceManager {
             ));
         }
 
-        if space.status != SpaceStatus::Active {
-            return Err(GaggleError::SpaceClosed("Space is not active".to_string()));
+        if space.status.is_terminal() {
+            return Err(GaggleError::SpaceClosed(format!(
+                "Space is in terminal state: {}",
+                space.status.as_str()
+            )));
         }
 
         let count = {
@@ -614,6 +638,16 @@ impl SpaceManager {
             )?;
             count
         };
+
+        // Capacity governance: enforce max_messages limit from SpaceRules
+        if let Some(max) = space.rules.max_messages {
+            if count as usize >= max {
+                return Err(GaggleError::ValidationError(format!(
+                    "Space capacity exceeded: {} messages (limit: {})",
+                    count, max
+                )));
+            }
+        }
 
         let round = space.current_round(count as u32 + 1);
 
@@ -668,8 +702,11 @@ impl SpaceManager {
             ));
         }
 
-        if space.status != SpaceStatus::Active {
-            return Err(GaggleError::SpaceClosed("Space is not active".to_string()));
+        if space.status.is_terminal() {
+            return Err(GaggleError::SpaceClosed(format!(
+                "Space is in terminal state: {}",
+                space.status.as_str()
+            )));
         }
 
         let count = {
@@ -681,6 +718,16 @@ impl SpaceManager {
             )?;
             count
         };
+
+        // Capacity governance: enforce max_messages limit from SpaceRules
+        if let Some(max) = space.rules.max_messages {
+            if count as usize >= max {
+                return Err(GaggleError::ValidationError(format!(
+                    "Space capacity exceeded: {} messages (limit: {})",
+                    count, max
+                )));
+            }
+        }
 
         let round = space.current_round(count as u32 + 1);
 
@@ -857,19 +904,33 @@ impl SpaceManager {
         }
 
         let concluded = req.conclusion == "concluded";
-        space.close(concluded);
+        let expected_version = space.version;
+        let transition = space.close(concluded, "close_request", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
+        tracing::info!(
+            space_id = %space.id, from = ?transition.from, to = ?transition.to,
+            trigger = %transition.trigger, agent_id = ?transition.agent_id,
+            "Space status transition"
+        );
+        space.bump_version();
 
         {
             let db = self.db.lock().unwrap();
-            db.execute(
-                "UPDATE spaces SET status = ?1, updated_at = ?2, closed_at = ?3 WHERE id = ?4",
+            let rows = db.execute(
+                "UPDATE spaces SET status = ?1, updated_at = ?2, closed_at = ?3, version = ?4 WHERE id = ?5 AND version = ?6",
                 params![
                     serde_json::to_string(&space.status)?,
                     space.updated_at,
                     space.closed_at,
+                    space.version,
                     space_id,
+                    expected_version,
                 ],
             )?;
+            if rows == 0 {
+                return Err(GaggleError::Conflict(format!(
+                    "Space {} version conflict during close", space_id
+                )));
+            }
         }
 
         self.spaces.insert(space.id.clone(), space.clone());
@@ -905,6 +966,90 @@ impl SpaceManager {
         Ok(count as usize)
     }
 
+    // ── Space Lifecycle Governance ──────────────────────────
+
+    /// Find all active spaces whose round deadline has passed.
+    /// Returns (space_id, agent_ids) pairs for notification.
+    pub async fn find_expired_spaces(&self) -> Result<Vec<(String, Vec<String>)>, GaggleError> {
+        let now_ms = Utc::now().timestamp_millis();
+        let db = self.db.lock().unwrap();
+
+        // Find active/created spaces with rules containing a deadline that has passed
+        let mut stmt = db.prepare(
+            "SELECT id, agent_ids, rules FROM spaces WHERE status IN ('\"active\"', '\"created\"', 'active', 'created')",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let agent_ids_str: String = row.get(1)?;
+            let rules_str: String = row.get(2)?;
+            Ok((id, agent_ids_str, rules_str))
+        })?;
+
+        let mut expired = Vec::new();
+        for row in rows {
+            let (id, agent_ids_str, rules_str) = row?;
+            let rules: SpaceRules = serde_json::from_str(&rules_str).unwrap_or_default();
+
+            // Check if deadline exists and has passed
+            let deadline_ms = rules.rounds.as_ref().and_then(|r| r.deadline);
+            if let Some(dl) = deadline_ms {
+                if dl <= now_ms {
+                    let agent_ids: Vec<String> =
+                        serde_json::from_str(&agent_ids_str).unwrap_or_default();
+                    expired.push((id, agent_ids));
+                }
+            }
+        }
+
+        Ok(expired)
+    }
+
+    /// Transition a space to Expired status. No agent authorization required
+    /// — this is a system-level lifecycle enforcement.
+    pub async fn expire_space(&self, space_id: &str) -> Result<Space, GaggleError> {
+        let mut space = self
+            .get_space(space_id)
+            .await?
+            .ok_or_else(|| GaggleError::SpaceNotFound(space_id.to_string()))?;
+
+        if !space.status.can_transition_to(&SpaceStatus::Expired) {
+            return Ok(space); // Already terminal, skip
+        }
+
+        let now_ms = Utc::now().timestamp_millis();
+        let expected_version = space.version;
+        space.status = SpaceStatus::Expired;
+        space.updated_at = now_ms;
+        space.closed_at = Some(now_ms);
+        space.version += 1;
+
+        {
+            let db = self.db.lock().unwrap();
+            let rows = db.execute(
+                "UPDATE spaces SET status = ?1, updated_at = ?2, closed_at = ?3, version = ?4 WHERE id = ?5 AND version = ?6",
+                params![
+                    serde_json::to_string(&space.status)?,
+                    space.updated_at,
+                    space.closed_at,
+                    space.version,
+                    space_id,
+                    expected_version,
+                ],
+            )?;
+            if rows == 0 {
+                return Err(GaggleError::Conflict(format!(
+                    "Space {} version conflict during expiry: expected {}",
+                    space_id, expected_version
+                )));
+            }
+        }
+
+        self.spaces.insert(space.id.clone(), space.clone());
+        tracing::info!(space_id = %space_id, "Space expired by lifecycle governor");
+        Ok(space)
+    }
+
     // ==================== RFP Proposal 相关方法 ====================
 
     /// 提交结构化提案
@@ -925,6 +1070,14 @@ impl SpaceManager {
             ));
         }
 
+        // State machine guard: reject if space is in terminal state
+        if space.status.is_terminal() {
+            return Err(GaggleError::SpaceClosed(format!(
+                "Cannot submit proposal: space is {}",
+                space.status.as_str()
+            )));
+        }
+
         // 规则驱动：检查 agent 角色是否有权提案
         let agent_role = space.get_role(&agent.id).unwrap_or("member");
         if !space.rules.role_can_propose(agent_role) {
@@ -939,7 +1092,7 @@ impl SpaceManager {
             ));
         }
 
-        // 获取当前轮次
+        // 获取当前轮次 + capacity check
         let round = {
             let db = self.db.lock().unwrap();
             let count: i64 = db
@@ -949,6 +1102,17 @@ impl SpaceManager {
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
+
+            // Capacity governance: enforce max_proposals limit from SpaceRules
+            if let Some(max) = space.rules.max_proposals {
+                if count as usize >= max {
+                    return Err(GaggleError::ValidationError(format!(
+                        "Space proposal capacity exceeded: {} proposals (limit: {})",
+                        count, max
+                    )));
+                }
+            }
+
             count as u32 + 1
         };
 
@@ -1052,6 +1216,14 @@ impl SpaceManager {
             ));
         }
 
+        // State machine guard
+        if space.status.is_terminal() {
+            return Err(GaggleError::SpaceClosed(format!(
+                "Cannot respond to proposal: space is {}",
+                space.status.as_str()
+            )));
+        }
+
         // 获取原提案
         let mut original_proposal = {
             let db = self.db.lock().unwrap();
@@ -1100,7 +1272,7 @@ impl SpaceManager {
 
         let counter_proposal = match req.action {
             ProposalResponseAction::Accept => {
-                original_proposal.accept();
+                original_proposal.accept().map_err(|e| GaggleError::ValidationError(e))?;
                 // 拒绝同一轮次的其他待处理提案
                 {
                     let db = self.db.lock().unwrap();
@@ -1118,11 +1290,11 @@ impl SpaceManager {
                 None
             }
             ProposalResponseAction::Reject => {
-                original_proposal.reject();
+                original_proposal.reject().map_err(|e| GaggleError::ValidationError(e))?;
                 None
             }
             ProposalResponseAction::Counter => {
-                original_proposal.supersede();
+                original_proposal.supersede().map_err(|e| GaggleError::ValidationError(e))?;
                 let counter_dimensions = req.counter_dimensions.unwrap_or_default();
 
                 let counter = Proposal::new(
@@ -1275,7 +1447,8 @@ impl SpaceManager {
 
         // Creator 离开 → cancel space
         if agent.id == space.creator_id {
-            space.close(false);
+            let t = space.close(false, "creator_left", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
+            tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: creator left");
         }
         // 规则驱动：非 creator 离开行为由 lock_condition 决定
         // 向后兼容：bilateral 默认 Never（可离开但不 cancel），旧逻辑等效
@@ -1285,7 +1458,8 @@ impl SpaceManager {
                     // 随时可离开，但不 cancel space（多方场景）
                     // 向后兼容 bilateral：bilateral 只有 2 人，离开等效 cancel
                     if space.agent_ids.len() <= 2 {
-                        space.close(false);
+                        let t = space.close(false, "member_left_bilateral", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
+                        tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: bilateral member left");
                     }
                     // 多方空间只移除成员
                 }
@@ -1311,7 +1485,8 @@ impl SpaceManager {
                 crate::negotiation::rules::LockCondition::OnConclude => {
                     // 成交前可离开
                     if space.agent_ids.len() <= 2 {
-                        space.close(false);
+                        let t = space.close(false, "member_left_pre_conclude", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
+                        tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: member left before conclusion");
                     }
                 }
                 crate::negotiation::rules::LockCondition::Manual => {
@@ -1326,15 +1501,15 @@ impl SpaceManager {
         // 从 agent_ids 和 joined_agent_ids 中移除
         space.agent_ids.retain(|id| id != &agent.id);
         space.joined_agent_ids.retain(|id| id != &agent.id);
-        space.updated_at = Utc::now().timestamp_millis();
+        space.bump_version();
 
         self.persist_space(&space)?;
-        // persist_space 不更新 closed_at，需要单独更新
+        // persist_space doesn't update closed_at; patch it with version guard
         if space.closed_at.is_some() {
             let db = self.db.lock().unwrap();
             db.execute(
-                "UPDATE spaces SET closed_at = ?1 WHERE id = ?2",
-                params![space.closed_at, space_id],
+                "UPDATE spaces SET closed_at = ?1 WHERE id = ?2 AND version = ?3",
+                params![space.closed_at, space_id, space.version],
             )?;
         }
 
@@ -1588,17 +1763,26 @@ impl SpaceManager {
 
         space.rfp_context = Some(rfp_ctx);
         space.updated_at = Utc::now().timestamp_millis();
+        let expected_ver = space.version;
+        space.bump_version();
 
         {
             let db = self.db.lock().unwrap();
-            db.execute(
-                "UPDATE spaces SET rfp_context = ?1, updated_at = ?2 WHERE id = ?3",
+            let rows = db.execute(
+                "UPDATE spaces SET rfp_context = ?1, updated_at = ?2, version = ?3 WHERE id = ?4 AND version = ?5",
                 params![
                     serde_json::to_string(&space.rfp_context)?,
                     space.updated_at,
+                    space.version,
                     space_id,
+                    expected_ver,
                 ],
             )?;
+            if rows == 0 {
+                return Err(GaggleError::Conflict(format!(
+                    "Space {} version conflict during RFP evaluation", space_id
+                )));
+            }
         }
 
         // Phase 13: 检查 OnRoundAdvance transition
@@ -1853,8 +2037,8 @@ impl SpaceManager {
             .await?
             .ok_or_else(|| GaggleError::NotFound(format!("Sub-space not found: {}", sub_space_id)))?;
 
-        if sub.status != SpaceStatus::Active {
-            return Err(GaggleError::ValidationError("Sub-space is not active".to_string()));
+        if sub.status.is_terminal() {
+            return Err(GaggleError::ValidationError(format!("Sub-space is in terminal state: {}", sub.status.as_str())));
         }
         if !sub.is_member(sender_id) {
             return Err(GaggleError::Forbidden("Not a member of this sub-space".to_string()));
@@ -1942,8 +2126,8 @@ impl SpaceManager {
             .await?
             .ok_or_else(|| GaggleError::NotFound(format!("Sub-space not found: {}", sub_space_id)))?;
 
-        if sub.status != SpaceStatus::Active {
-            return Err(GaggleError::ValidationError("Sub-space is not active".to_string()));
+        if sub.status.is_terminal() {
+            return Err(GaggleError::ValidationError(format!("Sub-space is in terminal state: {}", sub.status.as_str())));
         }
         if !sub.is_member(sender_id) {
             return Err(GaggleError::Forbidden("Not a member of this sub-space".to_string()));
@@ -2034,7 +2218,7 @@ impl SpaceManager {
             return Err(GaggleError::Forbidden("Only the creator can close a sub-space".to_string()));
         }
 
-        sub.close(concluded);
+        sub.close(concluded, "subspace_close", Some(closer_id)).map_err(|e| GaggleError::ValidationError(e))?;
         self.persist_subspace(&sub)?;
         Ok(sub)
     }
@@ -2627,12 +2811,13 @@ impl SpaceManager {
         if !space.joined_agent_ids.contains(&target_id.to_string()) {
             space.joined_agent_ids.push(target_id.to_string());
         }
-        if space.status == SpaceStatus::Created && space.all_joined() {
-            space.activate();
-        } else if space.status != SpaceStatus::Active {
-            space.status = SpaceStatus::Active;
+        if space.all_joined() && !space.status.is_terminal() {
+            if space.status == SpaceStatus::Created {
+                space.activate().map_err(|e| GaggleError::ValidationError(e))?;
+            }
+            // If already Active, no transition needed
         }
-        space.updated_at = Utc::now().timestamp_millis();
+        space.bump_version();
         self.persist_space(&space)?;
         self.update_cache(&space).await;
         Ok(space)
@@ -2651,7 +2836,7 @@ impl SpaceManager {
             return Err(GaggleError::Forbidden("Only the target can reject".to_string()));
         }
 
-        recruitment.reject();
+        recruitment.reject().map_err(|e| GaggleError::ValidationError(e))?;
 
         let db = self.db.lock().unwrap();
         db.execute(

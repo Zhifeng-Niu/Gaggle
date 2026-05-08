@@ -4,6 +4,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use tower_http::cors::{Any, CorsLayer};
 
 use super::middleware::{RateLimitConfig, RateLimitState};
@@ -14,10 +15,23 @@ pub fn create_router(
     state: AppState,
     rate_limit_rpm: u32,
 ) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // CORS: 从环境变量读取允许的 origins，默认仍允许所有（开发模式）
+    let cors = if let Ok(origins) = std::env::var("CORS_ORIGINS") {
+        let parsed: Vec<_> = origins
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if parsed.is_empty() {
+            CorsLayer::very_permissive()
+        } else {
+            CorsLayer::new()
+                .allow_origin(parsed)
+                .allow_methods(Any)
+                .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        }
+    } else {
+        CorsLayer::very_permissive()
+    };
 
     // 速率限制配置 (RPM -> 60秒窗口)
     // 120 RPM = 2 请求/秒 = 120 请求/60秒
@@ -210,6 +224,23 @@ pub fn create_router(
         .route("/api/v1/spaces/:space_id/recruit/:recruitment_id/accept", post(rest::rest_accept_recruitment))
         .route("/api/v1/spaces/:space_id/recruit/:recruitment_id/reject", post(rest::rest_reject_recruitment))
         .route("/api/v1/spaces/:space_id/recruitments", get(rest::rest_list_recruitments))
+        // Phase 14: Shared Reality Layer
+        .route("/api/v1/spaces/:space_id/state", get(rest::rest_get_shared_state))
+        .route("/api/v1/spaces/:space_id/reality-sync", get(rest::rest_get_reality_alignment))
+        .route("/api/v1/spaces/:space_id/state/:key", get(rest::rest_get_state_key))
+        .route("/api/v1/spaces/:space_id/state/:key", put(rest::rest_set_state_key))
+        .route("/api/v1/spaces/:space_id/state/:key", delete(rest::rest_delete_state_key))
+        .route("/api/v1/spaces/:space_id/events", get(rest::rest_get_state_events))
+        .route("/api/v1/spaces/:space_id/state/reconstruct/:version", get(rest::rest_reconstruct_state))
+        .route("/api/v1/spaces/:space_id/state/verify-chain", get(rest::rest_verify_chain))
+        .route("/api/v1/spaces/:space_id/state/integrity", get(rest::rest_state_integrity))
+        // Trace / Observability
+        .route("/api/v1/spaces/:space_id/trace", get(rest::rest_get_trace))
+        .route("/api/v1/events/queue-stats", get(rest::rest_queue_stats))
+        // Event Queue Admin
+        .route("/api/v1/events/dead-letters", get(rest::rest_list_dead_letters))
+        .route("/api/v1/events/dead-letters/cleanup", post(rest::rest_cleanup_dead_letters))
+        .route("/api/v1/events/dead-letters/:event_id/retry", post(rest::rest_retry_dead_letter))
         .with_state(state)
         .layer(
             // 应用速率限制中间件到所有路由（除了 /health）

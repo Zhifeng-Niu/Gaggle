@@ -46,6 +46,12 @@ pub enum GaggleError {
 
     #[error("WebSocket error: {0}")]
     WebSocketError(String),
+
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
+    #[error("Rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
 }
 
 impl IntoResponse for GaggleError {
@@ -91,6 +97,12 @@ impl IntoResponse for GaggleError {
                 "WEBSOCKET_ERROR",
                 msg.clone(),
             ),
+            GaggleError::Conflict(msg) => {
+                (StatusCode::CONFLICT, "CONFLICT", msg.clone())
+            }
+            GaggleError::RateLimitExceeded(msg) => {
+                (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMIT_EXCEEDED", msg.clone())
+            }
         };
 
         let body = Json(json!({

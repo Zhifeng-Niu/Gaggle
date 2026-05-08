@@ -14,10 +14,11 @@ use gaggle::api::event_queue::EventQueue;
 use gaggle::api::health::SERVER_START;
 use gaggle::api::rest::AppState;
 use gaggle::api::routes::create_router;
+use gaggle::api::trace::TraceStore;
 use gaggle::discovery::DiscoveryStore;
 use gaggle::execution::ExecutionStore;
 use gaggle::marketplace::MarketplaceStore;
-use gaggle::negotiation::SpaceManager;
+use gaggle::negotiation::{SharedStateManager, SpaceManager};
 use gaggle::reputation::ReputationStore;
 use gaggle::users::UserStore;
 
@@ -39,10 +40,13 @@ pub async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
     let execution_store = Arc::new(ExecutionStore::new(":memory:").unwrap());
     let marketplace_store = Arc::new(MarketplaceStore::new(":memory:").unwrap());
     let event_queue = Arc::new(EventQueue::new(":memory:").unwrap());
+    let shared_state_manager = Arc::new(SharedStateManager::new(":memory:").unwrap());
+    let trace_store = Arc::new(TraceStore::new(":memory:").unwrap());
 
     let state = AppState {
         registry,
         space_manager,
+        shared_state_manager,
         user_store,
         discovery_store,
         reputation_store,
@@ -50,6 +54,7 @@ pub async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         marketplace_store,
         online_agents: Arc::new(RwLock::new(HashMap::new())),
         event_queue,
+        trace_store,
     };
 
     // Create router with high rate limit for tests

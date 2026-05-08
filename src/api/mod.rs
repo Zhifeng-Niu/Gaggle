@@ -6,5 +6,6 @@ pub mod middleware;
 pub mod openclaw;
 pub mod rest;
 pub mod routes;
+pub mod trace;
 pub mod webhook;
 pub mod ws;
