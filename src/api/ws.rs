@@ -1076,6 +1076,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
     // 心跳超时计时器
     let mut last_activity = Instant::now();
     let heartbeat_timeout = Duration::from_secs(90);
+    let ping_threshold = Duration::from_secs(60); // send server Ping after 60s idle
+    let mut ping_sent = false;
 
     // WS 消息 rate limit: per-agent sliding window
     let ws_rate_max: u32 = std::env::var("WS_RATE_LIMIT_MAX")
@@ -1097,6 +1099,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
                     Some(Ok(WsMessage::Text(text))) => {
                         // 重置心跳计时器
                         last_activity = Instant::now();
+                        ping_sent = false;
 
                         // Rate limit check
                         if ws_window_start.elapsed() >= ws_rate_window {
@@ -1188,6 +1191,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
                     Some(Err(_)) => break,
                     Some(Ok(WsMessage::Ping(_))) => {
                         last_activity = Instant::now();
+                        ping_sent = false;
                         // AtomicI64 更新 last_ping，无需 write lock
                         {
                             let online = state.online_agents.read().await;
@@ -1228,18 +1232,26 @@ async fn handle_socket(socket: WebSocket, state: AppState, agent_id: String) {
             }
             // 心跳超时
             _ = tokio::time::sleep(timeout_remaining) => {
-                // 90s 无任何消息，断开连接
-                let _ = sender.send(WsMessage::Text(
-                    serde_json::to_string(&WsOutgoing::Error {
-                        request_id: None,
-                        space_id: None,
-                        payload: ErrorPayload {
-                            code: "HEARTBEAT_TIMEOUT".to_string(),
-                            message: "Connection closed: no activity for 90s".to_string(),
-                        },
-                    }).unwrap_or_default()
-                )).await;
-                break;
+                let idle = last_activity.elapsed();
+                if idle >= ping_threshold && !ping_sent {
+                    // Send a WebSocket Ping to probe the connection
+                    let _ = sender.send(WsMessage::Ping(vec![])).await;
+                    ping_sent = true;
+                    // Continue loop — will check again after remaining timeout
+                } else {
+                    // 90s total idle → disconnect
+                    let _ = sender.send(WsMessage::Text(
+                        serde_json::to_string(&WsOutgoing::Error {
+                            request_id: None,
+                            space_id: None,
+                            payload: ErrorPayload {
+                                code: "HEARTBEAT_TIMEOUT".to_string(),
+                                message: "Connection closed: no activity for 90s".to_string(),
+                            },
+                        }).unwrap_or_default()
+                    )).await;
+                    break;
+                }
             }
         }
     }
