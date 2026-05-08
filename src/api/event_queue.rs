@@ -487,6 +487,65 @@ impl EventQueue {
         Ok(rows > 0)
     }
 
+    /// Clean up orphan events whose agent_id no longer exists in the agents table.
+    /// These events can never be delivered because the agent has been deleted.
+    /// Returns the number of deleted rows.
+    pub async fn cleanup_orphan_events(&self, db_path: &str) -> Result<usize, GaggleError> {
+        let orphan_conn = Connection::open(db_path)?;
+        let orphan_ids: Vec<String> = orphan_conn
+            .prepare(
+                "SELECT DISTINCT eq.agent_id FROM event_queue eq
+                 LEFT JOIN agents a ON eq.agent_id = a.id
+                 WHERE eq.delivered_at IS NULL AND a.id IS NULL",
+            )?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if orphan_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let db = self.db.lock().await;
+        let mut total = 0usize;
+        for id in &orphan_ids {
+            let rows = db.execute(
+                "DELETE FROM event_queue WHERE agent_id = ?1 AND delivered_at IS NULL",
+                params![id],
+            )?;
+            total += rows as usize;
+        }
+
+        if total > 0 {
+            tracing::info!(
+                orphan_agents = orphan_ids.len(),
+                events_deleted = total,
+                "cleanup_orphan_events: removed events for deleted agents"
+            );
+        }
+
+        Ok(total)
+    }
+
+    /// Clean up pending events older than `days` that have never been delivered.
+    /// These represent stale events for agents that are unlikely to ever reconnect.
+    /// Returns the number of deleted rows.
+    pub async fn cleanup_stale_pending(&self, days: i64) -> Result<usize, GaggleError> {
+        let db = self.db.lock().await;
+        let cutoff = chrono::Utc::now().timestamp_millis() - (days * 86_400_000);
+        let rows = db.execute(
+            "DELETE FROM event_queue
+             WHERE delivered_at IS NULL
+               AND is_dead_letter = 0
+               AND created_at < ?1
+               AND retry_count = 0",
+            params![cutoff],
+        )?;
+        if rows > 0 {
+            tracing::info!(deleted = rows, days, "cleanup_stale_pending: removed old undelivered events");
+        }
+        Ok(rows as usize)
+    }
+
     /// Physically delete dead letter events older than `days` days.
     /// Returns the number of deleted rows.
     pub async fn cleanup_dead_letters(&self, days: i64) -> Result<usize, GaggleError> {

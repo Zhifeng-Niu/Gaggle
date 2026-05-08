@@ -109,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         let sm = space_manager;
         let eq = state.event_queue.clone();
         let online = state.online_agents.clone();
+        let db_path = config.database_path.clone();
         tokio::spawn(async move {
             // Retry scheduler summary counters (logged every ~60s)
             static SUMMARY_CYCLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -191,6 +192,17 @@ async fn main() -> anyhow::Result<()> {
                             summary_resets = 0;
                             summary_redeliveries = 0;
                             summary_dead_letters = 0;
+                        }
+
+                        // Clean up orphan events (agent deleted but events remain)
+                        match eq.cleanup_orphan_events(&db_path).await {
+                            Ok(n) if n > 0 => tracing::info!(deleted = n, "Governor: cleaned up orphan events for deleted agents"),
+                            _ => {}
+                        }
+                        // Clean up stale pending events older than 30 days (never delivered)
+                        match eq.cleanup_stale_pending(30).await {
+                            Ok(n) if n > 0 => tracing::info!(deleted = n, "Governor: cleaned up stale pending events"),
+                            _ => {}
                         }
 
                         match sm.find_expired_spaces().await {
