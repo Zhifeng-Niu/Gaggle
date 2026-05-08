@@ -204,6 +204,33 @@ impl SpaceManager {
         // Phase 12: Recruitment
         Self::init_recruitment_table(&conn)?;
 
+        // Phase P0: Deterministic State Machine Transition Log
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS space_status_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                space_id TEXT NOT NULL,
+                from_status TEXT NOT NULL,
+                to_status TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                agent_id TEXT,
+                space_version INTEGER NOT NULL,
+                timestamp INTEGER NOT NULL,
+                prev_hash TEXT,
+                transition_hash TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transitions_space_time
+             ON space_status_transitions (space_id, timestamp ASC)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transitions_space_version
+             ON space_status_transitions (space_id, space_version ASC)",
+            [],
+        )?;
+
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
             spaces: dashmap::DashMap::new(),
@@ -437,7 +464,12 @@ impl SpaceManager {
         // 检查是否所有成员都已加入
         let should_activate = space.all_joined();
         if should_activate {
-            let _ = space.activate();
+            if let Ok(_t) = space.activate() {
+                let _ = self.record_transition(
+                    &space.id, "created", "active",
+                    "all_agents_joined", Some(&agent.id), space.version,
+                );
+            }
         }
 
         // Phase 13: 检查 OnSpaceActivated 和 OnMemberCount transitions
@@ -507,6 +539,10 @@ impl SpaceManager {
 
         if space.all_joined() && space.status == SpaceStatus::Created {
             space.activate().map_err(|e| GaggleError::ValidationError(e))?;
+            let _ = self.record_transition(
+                &space.id, "created", "active",
+                "all_agents_joined", Some(target_agent_id), space.version,
+            );
             let _ = self.check_and_apply_transitions(&mut space, crate::negotiation::rules::RuleTrigger::OnSpaceActivated);
         }
         let member_count = space.joined_agent_ids.len();
@@ -911,6 +947,17 @@ impl SpaceManager {
             trigger = %transition.trigger, agent_id = ?transition.agent_id,
             "Space status transition"
         );
+
+        // Record transition to append-only log before bumping version
+        let _ = self.record_transition(
+            &space.id,
+            transition.from.as_str(),
+            transition.to.as_str(),
+            &transition.trigger,
+            transition.agent_id.as_deref(),
+            space.version,
+        );
+
         space.bump_version();
 
         {
@@ -966,6 +1013,220 @@ impl SpaceManager {
         Ok(count as usize)
     }
 
+    // ── Deterministic State Machine Transition Log ──────────
+
+    /// Record a state machine transition to the append-only log with hash chain.
+    /// This is the single source of truth for "how did the Space state evolve."
+    ///
+    /// Every call to space.activate(), space.close(), or expire_space() must
+    /// invoke this to maintain the deterministic transition history.
+    pub(crate) fn record_transition(
+        &self,
+        space_id: &str,
+        from_status: &str,
+        to_status: &str,
+        trigger: &str,
+        agent_id: Option<&str>,
+        space_version: u64,
+    ) -> Result<crate::negotiation::space::PersistedTransition, GaggleError> {
+        use crate::negotiation::space::{
+            PersistedTransition, compute_transition_hash, TRANSITION_GENESIS_HASH,
+        };
+
+        let db = self.db.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+
+        // Get previous transition's hash for chain integrity
+        let prev_hash: String = db
+            .query_row(
+                "SELECT transition_hash FROM space_status_transitions
+                 WHERE space_id = ?1 ORDER BY id DESC LIMIT 1",
+                rusqlite::params![space_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten()
+            .unwrap_or_else(|| TRANSITION_GENESIS_HASH.to_string());
+
+        let transition_hash = compute_transition_hash(
+            &prev_hash,
+            space_id,
+            from_status,
+            to_status,
+            trigger,
+            space_version,
+            now,
+        );
+
+        db.execute(
+            "INSERT INTO space_status_transitions
+             (space_id, from_status, to_status, trigger, agent_id, space_version, timestamp, prev_hash, transition_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                space_id,
+                from_status,
+                to_status,
+                trigger,
+                agent_id,
+                space_version,
+                now,
+                prev_hash,
+                transition_hash,
+            ],
+        )?;
+
+        let id = db.last_insert_rowid();
+
+        Ok(PersistedTransition {
+            id,
+            space_id: space_id.to_string(),
+            from_status: from_status.to_string(),
+            to_status: to_status.to_string(),
+            trigger: trigger.to_string(),
+            agent_id: agent_id.map(|s| s.to_string()),
+            space_version,
+            timestamp: now,
+            prev_hash: Some(prev_hash),
+            transition_hash: Some(transition_hash),
+        })
+    }
+
+    /// Query the transition history for a Space.
+    /// Returns transitions in chronological order with hash chain intact.
+    pub async fn get_transition_history(
+        &self,
+        space_id: &str,
+        limit: usize,
+        before_id: Option<i64>,
+    ) -> Result<crate::negotiation::space::TransitionHistory, GaggleError> {
+        use crate::negotiation::space::TransitionHistory;
+
+        let db = self.db.lock().unwrap();
+
+        let total: usize = db
+            .query_row(
+                "SELECT COUNT(*) FROM space_status_transitions WHERE space_id = ?1",
+                rusqlite::params![space_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let transitions = if let Some(bid) = before_id {
+            let mut stmt = db.prepare(
+                "SELECT id, space_id, from_status, to_status, trigger, agent_id,
+                        space_version, timestamp, prev_hash, transition_hash
+                 FROM space_status_transitions
+                 WHERE space_id = ?1 AND id < ?2
+                 ORDER BY timestamp ASC, id ASC LIMIT ?3",
+            )?;
+            Self::map_transitions(&mut stmt, rusqlite::params![space_id, bid, limit])?
+        } else {
+            let mut stmt = db.prepare(
+                "SELECT id, space_id, from_status, to_status, trigger, agent_id,
+                        space_version, timestamp, prev_hash, transition_hash
+                 FROM space_status_transitions
+                 WHERE space_id = ?1
+                 ORDER BY timestamp ASC, id ASC LIMIT ?2",
+            )?;
+            Self::map_transitions(&mut stmt, rusqlite::params![space_id, limit])?
+        };
+
+        // Get current status and version
+        let (current_status, current_version) = db
+            .query_row(
+                "SELECT status, version FROM spaces WHERE id = ?1",
+                rusqlite::params![space_id],
+                |row| {
+                    let status: String = row.get(0)?;
+                    let version: u64 = row.get(1).unwrap_or(0);
+                    Ok((status, version))
+                },
+            )
+            .optional()?
+            .unwrap_or(("unknown".to_string(), 0));
+
+        Ok(TransitionHistory {
+            space_id: space_id.to_string(),
+            transitions,
+            total,
+            current_status,
+            current_version,
+        })
+    }
+
+    /// Verify the hash chain integrity of a Space's transition log.
+    /// Returns (total_transitions, verified_count, failed_count).
+    pub async fn verify_transition_chain(
+        &self,
+        space_id: &str,
+    ) -> Result<(usize, usize, usize), GaggleError> {
+        use crate::negotiation::space::TRANSITION_GENESIS_HASH;
+
+        let transitions = {
+            let db = self.db.lock().unwrap();
+            let mut stmt = db.prepare(
+                "SELECT id, space_id, from_status, to_status, trigger, agent_id,
+                        space_version, timestamp, prev_hash, transition_hash
+                 FROM space_status_transitions
+                 WHERE space_id = ?1
+                 ORDER BY timestamp ASC, id ASC",
+            )?;
+            Self::map_transitions(&mut stmt, rusqlite::params![space_id])?
+        };
+
+        let total = transitions.len();
+        let mut verified = 0;
+        let mut failed = 0;
+        let mut prev_hash = TRANSITION_GENESIS_HASH.to_string();
+
+        for t in &transitions {
+            let expected = crate::negotiation::space::compute_transition_hash(
+                &prev_hash,
+                &t.space_id,
+                &t.from_status,
+                &t.to_status,
+                &t.trigger,
+                t.space_version,
+                t.timestamp,
+            );
+
+            match (&t.prev_hash, &t.transition_hash) {
+                (Some(ph), Some(th)) if ph == &prev_hash && th == &expected => {
+                    verified += 1;
+                }
+                _ => {
+                    failed += 1;
+                }
+            }
+            prev_hash = t.transition_hash.clone().unwrap_or_default();
+        }
+
+        Ok((total, verified, failed))
+    }
+
+    fn map_transitions(
+        stmt: &mut rusqlite::Statement,
+        params: &[&dyn rusqlite::types::ToSql],
+    ) -> Result<Vec<crate::negotiation::space::PersistedTransition>, GaggleError> {
+        let transitions = stmt
+            .query_map(params, |row| {
+                Ok(crate::negotiation::space::PersistedTransition {
+                    id: row.get(0)?,
+                    space_id: row.get(1)?,
+                    from_status: row.get(2)?,
+                    to_status: row.get(3)?,
+                    trigger: row.get(4)?,
+                    agent_id: row.get(5)?,
+                    space_version: row.get(6)?,
+                    timestamp: row.get(7)?,
+                    prev_hash: row.get(8)?,
+                    transition_hash: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(transitions)
+    }
+
     // ── Space Lifecycle Governance ──────────────────────────
 
     /// Find all active spaces whose round deadline has passed.
@@ -1017,8 +1278,16 @@ impl SpaceManager {
             return Ok(space); // Already terminal, skip
         }
 
+        let old_status_str = space.status.as_str().to_string();
         let now_ms = Utc::now().timestamp_millis();
         let expected_version = space.version;
+
+        // Record transition to append-only log before mutating space
+        let _ = self.record_transition(
+            space_id, &old_status_str, "expired",
+            "lifecycle_governor", None::<&str>, space.version,
+        );
+
         space.status = SpaceStatus::Expired;
         space.updated_at = now_ms;
         space.closed_at = Some(now_ms);
@@ -1449,6 +1718,10 @@ impl SpaceManager {
         if agent.id == space.creator_id {
             let t = space.close(false, "creator_left", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
             tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: creator left");
+            let _ = self.record_transition(
+                &space.id, t.from.as_str(), t.to.as_str(),
+                &t.trigger, t.agent_id.as_deref(), space.version,
+            );
         }
         // 规则驱动：非 creator 离开行为由 lock_condition 决定
         // 向后兼容：bilateral 默认 Never（可离开但不 cancel），旧逻辑等效
@@ -1460,6 +1733,10 @@ impl SpaceManager {
                     if space.agent_ids.len() <= 2 {
                         let t = space.close(false, "member_left_bilateral", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
                         tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: bilateral member left");
+                        let _ = self.record_transition(
+                            &space.id, t.from.as_str(), t.to.as_str(),
+                            &t.trigger, t.agent_id.as_deref(), space.version,
+                        );
                     }
                     // 多方空间只移除成员
                 }
@@ -1487,6 +1764,10 @@ impl SpaceManager {
                     if space.agent_ids.len() <= 2 {
                         let t = space.close(false, "member_left_pre_conclude", Some(&agent.id)).map_err(|e| GaggleError::ValidationError(e))?;
                         tracing::info!(space_id = %space.id, from = ?t.from, to = ?t.to, "Space cancelled: member left before conclusion");
+                        let _ = self.record_transition(
+                            &space.id, t.from.as_str(), t.to.as_str(),
+                            &t.trigger, t.agent_id.as_deref(), space.version,
+                        );
                     }
                 }
                 crate::negotiation::rules::LockCondition::Manual => {
@@ -2814,6 +3095,10 @@ impl SpaceManager {
         if space.all_joined() && !space.status.is_terminal() {
             if space.status == SpaceStatus::Created {
                 space.activate().map_err(|e| GaggleError::ValidationError(e))?;
+                let _ = self.record_transition(
+                    &space.id, "created", "active",
+                    "recruitment_accepted", Some(target_id), space.version,
+                );
             }
             // If already Active, no transition needed
         }
@@ -2845,5 +3130,227 @@ impl SpaceManager {
         )?;
 
         Ok(recruitment)
+    }
+}
+
+#[cfg(test)]
+mod transition_log_tests {
+    use super::*;
+    use crate::agents::types::{AgentType, RegisterRequest};
+    use crate::AgentRegistry;
+    use crate::negotiation::space::SpaceStatus;
+
+    fn setup() -> (AgentRegistry, SpaceManager) {
+        let registry = AgentRegistry::new(":memory:").unwrap();
+        let sm = SpaceManager::new(":memory:").unwrap();
+        (registry, sm)
+    }
+
+    async fn make_agent(registry: &AgentRegistry, name: &str) -> Agent {
+        let resp: crate::agents::types::RegisterResponse = registry.register(
+            RegisterRequest {
+                agent_type: AgentType::Consumer,
+                name: name.to_string(),
+                metadata: serde_json::json!({}),
+                public_key: None,
+                organization: None,
+                callback_url: None,
+            },
+            None,
+        ).await.unwrap();
+        registry.get_by_id(&resp.id).await.unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_transition_recorded_on_activate() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+        let invitee = make_agent(&registry, "invitee").await;
+
+        let space = sm.create_space(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Test".into(),
+                invitee_ids: vec![invitee.id.clone()],
+                context: serde_json::json!({}),
+            },
+            None,
+        ).await.unwrap();
+
+        // Join both agents → activates space
+        sm.join_space(&invitee, &space.id).await.unwrap();
+
+        let history = sm.get_transition_history(&space.id, 100, None).await.unwrap();
+        assert_eq!(history.transitions.len(), 1);
+        assert_eq!(history.transitions[0].from_status, "created");
+        assert_eq!(history.transitions[0].to_status, "active");
+        assert_eq!(history.transitions[0].trigger, "all_agents_joined");
+        assert!(history.transitions[0].transition_hash.is_some());
+        assert!(history.transitions[0].prev_hash.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_transition_recorded_on_close() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+        let invitee = make_agent(&registry, "invitee").await;
+
+        let space = sm.create_space(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Test".into(),
+                invitee_ids: vec![invitee.id.clone()],
+                context: serde_json::json!({}),
+            },
+            None,
+        ).await.unwrap();
+
+        sm.join_space(&invitee, &space.id).await.unwrap();
+
+        // Close as concluded
+        sm.close_space(&creator, &space.id, crate::negotiation::CloseSpaceRequest {
+            conclusion: "concluded".into(),
+            final_terms: None,
+        }).await.unwrap();
+
+        let history = sm.get_transition_history(&space.id, 100, None).await.unwrap();
+        assert_eq!(history.transitions.len(), 2);
+        assert_eq!(history.transitions[1].from_status, "active");
+        assert_eq!(history.transitions[1].to_status, "concluded");
+    }
+
+    #[tokio::test]
+    async fn test_transition_hash_chain_integrity() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+        let invitee = make_agent(&registry, "invitee").await;
+
+        let space = sm.create_space(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Test".into(),
+                invitee_ids: vec![invitee.id.clone()],
+                context: serde_json::json!({}),
+            },
+            None,
+        ).await.unwrap();
+
+        sm.join_space(&invitee, &space.id).await.unwrap();
+        sm.close_space(&creator, &space.id, crate::negotiation::CloseSpaceRequest {
+            conclusion: "concluded".into(),
+            final_terms: None,
+        }).await.unwrap();
+
+        let (total, verified, failed) = sm.verify_transition_chain(&space.id).await.unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(verified, 2);
+        assert_eq!(failed, 0, "hash chain should be intact");
+    }
+
+    #[tokio::test]
+    async fn test_transition_history_pagination() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+        let invitee = make_agent(&registry, "invitee").await;
+
+        let space = sm.create_space(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Test".into(),
+                invitee_ids: vec![invitee.id.clone()],
+                context: serde_json::json!({}),
+            },
+            None,
+        ).await.unwrap();
+
+        sm.join_space(&invitee, &space.id).await.unwrap();
+        sm.close_space(&creator, &space.id, crate::negotiation::CloseSpaceRequest {
+            conclusion: "concluded".into(),
+            final_terms: None,
+        }).await.unwrap();
+
+        // Total count should be 2
+        let full = sm.get_transition_history(&space.id, 100, None).await.unwrap();
+        assert_eq!(full.total, 2);
+
+        // Limit to 1
+        let page = sm.get_transition_history(&space.id, 1, None).await.unwrap();
+        assert_eq!(page.transitions.len(), 1);
+        assert_eq!(page.total, 2); // total is always full count
+    }
+
+    #[tokio::test]
+    async fn test_no_transitions_for_new_space() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+
+        let space = sm.create_space(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Empty".into(),
+                invitee_ids: vec![],
+                context: serde_json::json!({}),
+            },
+            None,
+        ).await.unwrap();
+
+        let history = sm.get_transition_history(&space.id, 100, None).await.unwrap();
+        assert_eq!(history.transitions.len(), 0);
+        assert_eq!(history.total, 0);
+    }
+
+    #[tokio::test]
+    async fn test_expire_space_records_transition() {
+        let (registry, sm) = setup();
+        let creator = make_agent(&registry, "creator").await;
+
+        // Create a space with rules that have a past deadline
+        let space = sm.create_space_with_rules(
+            &creator,
+            crate::negotiation::CreateSpaceRequest {
+                name: "Expiring".into(),
+                invitee_ids: vec![],
+                context: serde_json::json!({}),
+            },
+            None,
+            Some(crate::negotiation::rules::SpaceRulesOverrides {
+                rounds: Some(Some(crate::negotiation::rules::RoundConfig {
+                    max_rounds: 3,
+                    deadline: Some(chrono::Utc::now().timestamp_millis() - 10000),
+                    auto_advance: false,
+                    evaluation_criteria: None,
+                    share_best_terms: false,
+                })),
+                visibility: None,
+                can_propose: None,
+                lock_condition: None,
+                reveal_mode: None,
+                roles: None,
+                max_participants: None,
+                join_policy: None,
+                transitions: None,
+            }),
+        ).await.unwrap();
+
+        // Manually set status to Active via DB (bypass persist_space version check)
+        {
+            let db = sm.db.lock().unwrap();
+            db.execute(
+                "UPDATE spaces SET status = '\"active\"' WHERE id = ?1",
+                rusqlite::params![space.id],
+            ).unwrap();
+        }
+        // Clear cache to force reload
+        sm.spaces.remove(&space.id);
+
+        // Expire
+        sm.expire_space(&space.id).await.unwrap();
+
+        let history = sm.get_transition_history(&space.id, 100, None).await.unwrap();
+        assert_eq!(history.transitions.len(), 1);
+        assert_eq!(history.transitions[0].from_status, "active");
+        assert_eq!(history.transitions[0].to_status, "expired");
+        assert_eq!(history.transitions[0].trigger, "lifecycle_governor");
+        assert!(history.transitions[0].agent_id.is_none());
     }
 }

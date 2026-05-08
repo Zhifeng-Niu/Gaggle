@@ -25,11 +25,12 @@ pub use marketplace::MarketplaceStore;
 pub use negotiation::{
     BestTermsShared, Coalition, CoalitionStatus, CreateCoalitionRequest, CreateDelegationRequest,
     CreateRecruitmentRequest, CreateRfpRequest, CreateSubSpaceRequest, Delegation, DelegationScope,
-    DelegationStatus, JoinPolicy, LockCondition, MessageVisibility, Proposal, ProposalDimensions,
-    ProposalResponseAction, ProposalStatus, ProposalType, RecruitmentRequest, RecruitmentStatus,
-    RevealMode, RespondToProposalRequest, RfpContext, RoleConfig, RoundConfig, RuleTransition,
-    RuleTrigger, ShareBestTermsRequest, Space, SpaceRules, SpaceRulesOverrides, SpaceStatus,
-    SpaceType, SubSpace, SubmitProposalRequest, UpdateStanceRequest, VisibilityRule, VisibilityRules,
+    DelegationStatus, JoinPolicy, LockCondition, MessageVisibility, PersistedTransition, Proposal,
+    ProposalDimensions, ProposalResponseAction, ProposalStatus, ProposalType, RecruitmentRequest,
+    RecruitmentStatus, RevealMode, RespondToProposalRequest, RfpContext, RoleConfig, RoundConfig,
+    RuleTransition, RuleTrigger, ShareBestTermsRequest, Space, SpaceRules, SpaceRulesOverrides,
+    SpaceStatus, SpaceType, SubSpace, SubmitProposalRequest, TransitionHistory,
+    UpdateStanceRequest, VisibilityRule, VisibilityRules,
 };
 pub use reputation::ReputationStore;
 pub use users::UserStore;

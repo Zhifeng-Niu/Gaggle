@@ -236,6 +236,8 @@ pub fn create_router(
         .route("/api/v1/spaces/:space_id/state/integrity", get(rest::rest_state_integrity))
         // Trace / Observability
         .route("/api/v1/spaces/:space_id/trace", get(rest::rest_get_trace))
+        .route("/api/v1/spaces/:space_id/transitions", get(rest::rest_get_transitions_history))
+        .route("/api/v1/spaces/:space_id/transitions/verify-chain", get(rest::rest_verify_transitions_chain))
         .route("/api/v1/events/queue-stats", get(rest::rest_queue_stats))
         // Event Queue Admin
         .route("/api/v1/events/dead-letters", get(rest::rest_list_dead_letters))

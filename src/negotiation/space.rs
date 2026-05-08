@@ -3,10 +3,36 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::message::MessageType;
 use super::rules::SpaceRules;
+
+/// Genesis hash for transition chain head
+pub const TRANSITION_GENESIS_HASH: &str =
+    "0000000000000000000000000000000000000000000000000000000000000000";
+
+/// Compute SHA-256 hash of a transition record
+pub fn compute_transition_hash(
+    prev_hash: &str,
+    space_id: &str,
+    from_status: &str,
+    to_status: &str,
+    trigger: &str,
+    space_version: u64,
+    timestamp: i64,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(prev_hash.as_bytes());
+    hasher.update(space_id.as_bytes());
+    hasher.update(from_status.as_bytes());
+    hasher.update(to_status.as_bytes());
+    hasher.update(trigger.as_bytes());
+    hasher.update(space_version.to_string().as_bytes());
+    hasher.update(timestamp.to_string().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 /// Space状态
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -32,6 +58,36 @@ pub struct StatusTransition {
     pub at: i64,
     pub trigger: String,
     pub agent_id: Option<String>,
+}
+
+/// 持久化的状态转换记录 — append-only, hash-chained, 不可篡改。
+/// 与 Shared Reality Layer 的 hash chain 设计一致。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedTransition {
+    pub id: i64,
+    pub space_id: String,
+    pub from_status: String,
+    pub to_status: String,
+    pub trigger: String,
+    pub agent_id: Option<String>,
+    pub space_version: u64,
+    pub timestamp: i64,
+    /// Hash chain: 前一条记录的 hash（链头为全零）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_hash: Option<String>,
+    /// 本条记录的 SHA-256 hash
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_hash: Option<String>,
+}
+
+/// 转换历史查询响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransitionHistory {
+    pub space_id: String,
+    pub transitions: Vec<PersistedTransition>,
+    pub total: usize,
+    pub current_status: String,
+    pub current_version: u64,
 }
 
 impl SpaceStatus {
@@ -606,5 +662,60 @@ mod tests {
         assert!(SpaceStatus::Concluded.is_terminal());
         assert!(SpaceStatus::Cancelled.is_terminal());
         assert!(SpaceStatus::Expired.is_terminal());
+    }
+
+    #[test]
+    fn test_transition_hash_deterministic() {
+        let h1 = compute_transition_hash(
+            TRANSITION_GENESIS_HASH,
+            "space_1", "created", "active",
+            "all_agents_joined", 1, 1000,
+        );
+        let h2 = compute_transition_hash(
+            TRANSITION_GENESIS_HASH,
+            "space_1", "created", "active",
+            "all_agents_joined", 1, 1000,
+        );
+        assert_eq!(h1, h2, "hash must be deterministic for same inputs");
+        assert_eq!(h1.len(), 64, "SHA-256 hex output is 64 chars");
+    }
+
+    #[test]
+    fn test_transition_hash_chain_linking() {
+        let h1 = compute_transition_hash(
+            TRANSITION_GENESIS_HASH,
+            "space_1", "created", "active",
+            "all_agents_joined", 1, 1000,
+        );
+        // Second transition references h1 as prev_hash
+        let h2 = compute_transition_hash(
+            &h1,
+            "space_1", "active", "concluded",
+            "close_request", 3, 2000,
+        );
+        assert_ne!(h1, h2, "different transitions produce different hashes");
+
+        // Changing prev_hash changes the output → chain integrity
+        let h2_tampered = compute_transition_hash(
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            "space_1", "active", "concluded",
+            "close_request", 3, 2000,
+        );
+        assert_ne!(h2, h2_tampered, "tampering prev_hash produces different hash");
+    }
+
+    #[test]
+    fn test_transition_hash_differs_per_space() {
+        let h_a = compute_transition_hash(
+            TRANSITION_GENESIS_HASH,
+            "space_a", "created", "active",
+            "all_agents_joined", 1, 1000,
+        );
+        let h_b = compute_transition_hash(
+            TRANSITION_GENESIS_HASH,
+            "space_b", "created", "active",
+            "all_agents_joined", 1, 1000,
+        );
+        assert_ne!(h_a, h_b, "different space_id produces different hash");
     }
 }

@@ -32,8 +32,8 @@ pub use shared_state::{
 };
 pub use visibility::VisibilityEngine;
 pub use space::{
-    CloseSpaceRequest, CreateSpaceRequest, EncryptedContent, MessageVisibility, SendMessageRequest,
-    Space, SpaceMessage, SpaceStatus, SpaceType,
+    CloseSpaceRequest, CreateSpaceRequest, EncryptedContent, MessageVisibility, PersistedTransition,
+    SendMessageRequest, Space, SpaceMessage, SpaceStatus, SpaceType, TransitionHistory,
 };
 pub use subspace::{CreateSubSpaceRequest, SubSpace};
 pub use coalition::{Coalition, CoalitionStatus, CreateCoalitionRequest, UpdateStanceRequest};

@@ -95,6 +95,7 @@
     <div class="theater-tab-bar">
       <button class="theater-tab active" data-panel="proposalList" data-i18n="theater.proposals">提案</button>
       <button class="theater-tab" data-panel="statePanel" data-i18n="theater.state">状态</button>
+      <button class="theater-tab" data-panel="stateMachinePanel">StateMachine</button>
       <button class="theater-tab" data-panel="tracePanel">Trace</button>
     </div>
     <div id="proposalList">
@@ -147,6 +148,31 @@
       <div class="state-events-toggle" id="stateEventsToggle">▼ Event Log</div>
       <div id="stateEventsLog" style="display:none">
         <div class="theater-empty"><span>No events yet</span></div>
+      </div>
+    </div>
+    <div id="stateMachinePanel" style="display:none" role="region" aria-label="State Machine">
+      <div class="state-header">
+        <span style="font-family:var(--ds-font-mono);font-size:11px;color:var(--text-muted);letter-spacing:0.06em">STATE MACHINE</span>
+        <button class="btn-ghost state-refresh" id="smRefreshBtn" aria-label="Refresh transitions" title="Refresh">↻</button>
+      </div>
+      <!-- Current State Badge -->
+      <div id="smCurrentState" class="sm-current-state">
+        <span class="sm-state-label">Current:</span>
+        <span id="smCurrentBadge" class="sm-badge sm-badge-unknown">--</span>
+      </div>
+      <!-- Transition Chain: visual timeline -->
+      <div id="smTimeline" class="sm-timeline">
+        <div class="theater-empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          <span>No transitions recorded</span>
+        </div>
+      </div>
+      <!-- Chain Integrity -->
+      <div id="smChainIntegrity" class="chain-integrity" style="display:none">
+        <span id="smChainBadge" class="chain-integrity-badge">--</span>
+        <span id="smChainInfo" class="chain-info"></span>
       </div>
     </div>
     <div id="tracePanel" style="display:none" role="region" aria-label="Audit Trace">
@@ -1376,8 +1402,10 @@
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i] === tab);
     $('proposalList').style.display = panel === 'proposalList' ? '' : 'none';
     $('statePanel').style.display = panel === 'statePanel' ? '' : 'none';
+    $('stateMachinePanel').style.display = panel === 'stateMachinePanel' ? '' : 'none';
     $('tracePanel').style.display = panel === 'tracePanel' ? '' : 'none';
     if (panel === 'statePanel' && currentSpaceId) loadSharedState();
+    if (panel === 'stateMachinePanel' && currentSpaceId) loadStateMachine();
     if (panel === 'tracePanel' && currentSpaceId) { loadTrace(); loadTraceStats(); }
   });
 
@@ -1726,6 +1754,80 @@
   // ── Phase 14b: Structured Audit Trace Panel ────────────────
 
   $('traceRefreshBtn').addEventListener('click', function () { loadTrace(); loadTraceStats(); });
+
+  // ── State Machine Panel ──
+  $('smRefreshBtn').addEventListener('click', function () { loadStateMachine(); });
+
+  function loadStateMachine() {
+    if (!currentSpaceId) return;
+    apiGet('/api/v1/spaces/' + currentSpaceId + '/transitions?limit=100', function (data) {
+      renderStateMachine(data);
+    }, function () {
+      $('smTimeline').innerHTML = '<div class="theater-empty"><span>Failed to load transitions</span></div>';
+    });
+  }
+
+  function renderStateMachine(data) {
+    // Current state badge
+    var badge = $('smCurrentBadge');
+    var status = data.current_status || 'unknown';
+    // Strip JSON quotes if present
+    status = status.replace(/"/g, '');
+    badge.textContent = status.toUpperCase();
+    badge.className = 'sm-badge sm-badge-' + status;
+
+    // Transition timeline
+    var timeline = $('smTimeline');
+    if (!data.transitions || data.transitions.length === 0) {
+      timeline.innerHTML = '<div class="theater-empty"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>No transitions recorded</span></div>';
+      $('smChainIntegrity').style.display = 'none';
+      return;
+    }
+
+    var html = '<div class="sm-chain">';
+    // Genesis node (initial state)
+    html += '<div class="sm-node sm-node-genesis">';
+    html += '<div class="sm-node-dot"></div>';
+    html += '<div class="sm-node-info"><span class="sm-node-status">CREATED</span><span class="sm-node-meta">initial state</span></div>';
+    html += '</div>';
+
+    for (var i = 0; i < data.transitions.length; i++) {
+      var t = data.transitions[i];
+      var fromLabel = t.from_status.replace(/"/g, '').toUpperCase();
+      var toLabel = t.to_status.replace(/"/g, '').toUpperCase();
+      var time = new Date(t.timestamp).toLocaleTimeString();
+      var hashShort = t.transition_hash ? t.transition_hash.substring(0, 8) : '--';
+
+      html += '<div class="sm-arrow"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 2v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg></div>';
+      html += '<div class="sm-node">';
+      html += '<div class="sm-node-dot"></div>';
+      html += '<div class="sm-node-info">';
+      html += '<span class="sm-node-status sm-status-' + t.to_status.replace(/"/g, '') + '">' + toLabel + '</span>';
+      html += '<span class="sm-node-meta">' + escHtml(t.trigger) + (t.agent_id ? ' by ' + escHtml(t.agent_id.substring(0, 8)) : '') + '</span>';
+      html += '<span class="sm-node-hash" title="transition_hash: ' + (t.transition_hash || '') + '">' + hashShort + '…</span>';
+      html += '<span class="sm-node-time">' + time + ' (v' + t.space_version + ')</span>';
+      html += '</div></div>';
+    }
+    html += '</div>';
+    timeline.innerHTML = html;
+
+    // Verify chain integrity
+    apiGet('/api/v1/spaces/' + currentSpaceId + '/transitions/verify-chain', function (v) {
+      var ci = $('smChainIntegrity');
+      ci.style.display = '';
+      var cb = $('smChainBadge');
+      cb.textContent = v.chain_intact ? 'CHAIN INTACT' : 'CHAIN BROKEN';
+      cb.className = 'chain-integrity-badge ' + (v.chain_intact ? 'intact' : 'broken');
+      $('smChainInfo').textContent = v.total_transitions + ' transitions, ' + v.verified + ' verified';
+    });
+  }
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
   $('traceFilterAction').addEventListener('change', function () { loadTrace(); });
 
   function esc(s) {

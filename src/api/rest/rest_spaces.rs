@@ -858,3 +858,57 @@ pub async fn rest_create_rfp_from_need(
         "need_status": "matched",
     })))
 }
+
+// ── State Machine Transition History ──────────────────
+
+#[derive(Deserialize)]
+pub struct TransitionsQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub before_id: Option<i64>,
+}
+
+/// GET /api/v1/spaces/:space_id/transitions
+/// Query the deterministic state machine transition history for a Space.
+/// Each transition is hash-chained for tamper-proof auditability.
+pub async fn rest_get_transitions_history(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(space_id): Path<String>,
+    Query(query): Query<TransitionsQuery>,
+) -> Result<Json<crate::negotiation::space::TransitionHistory>, GaggleError> {
+    let _agent_id = super::extract_agent_id(&state, &headers).await?;
+    super::verify_space_member(&state, &space_id, &_agent_id).await?;
+
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let history = state
+        .space_manager
+        .get_transition_history(&space_id, limit, query.before_id)
+        .await?;
+    Ok(Json(history))
+}
+
+/// GET /api/v1/spaces/:space_id/transitions/verify-chain
+/// Verify the hash chain integrity of the Space's transition log.
+pub async fn rest_verify_transitions_chain(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(space_id): Path<String>,
+) -> Result<Json<serde_json::Value>, GaggleError> {
+    let _agent_id = super::extract_agent_id(&state, &headers).await?;
+    super::verify_space_member(&state, &space_id, &_agent_id).await?;
+
+    let (total, verified, failed) = state
+        .space_manager
+        .verify_transition_chain(&space_id)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "space_id": space_id,
+        "total_transitions": total,
+        "verified": verified,
+        "failed": failed,
+        "chain_intact": failed == 0,
+    })))
+}

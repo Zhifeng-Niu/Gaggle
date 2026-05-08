@@ -5129,6 +5129,97 @@ form.is-disabled button {
   font-size: 9px;
 }
 
+/* ── State Machine Panel ── */
+.sm-current-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.sm-state-label { color: var(--color-text-muted); }
+.sm-badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+.sm-badge-created { color: #8b9cf7; background: rgba(139,156,247,0.12); border: 1px solid rgba(139,156,247,0.25); }
+.sm-badge-active { color: #22d3ee; background: rgba(34,211,238,0.12); border: 1px solid rgba(34,211,238,0.25); }
+.sm-badge-concluded { color: #4ade80; background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.25); }
+.sm-badge-cancelled { color: #f87171; background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.25); }
+.sm-badge-expired { color: #fbbf24; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.25); }
+.sm-badge-unknown { color: var(--color-text-muted); background: rgba(128,128,128,0.12); border: 1px solid rgba(128,128,128,0.25); }
+.sm-timeline {
+  padding: 8px 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.sm-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.sm-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+.sm-node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.sm-node-genesis .sm-node-dot {
+  background: var(--color-text-muted);
+}
+.sm-node-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.sm-node-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.sm-status-active { color: #22d3ee; }
+.sm-status-concluded { color: #4ade80; }
+.sm-status-cancelled { color: #f87171; }
+.sm-status-expired { color: #fbbf24; }
+.sm-node-meta {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sm-node-hash {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: rgba(200,255,0,0.6);
+}
+.sm-node-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+.sm-arrow {
+  display: flex;
+  align-items: center;
+  padding-left: 0;
+  margin-left: 3px;
+  color: var(--color-text-muted);
+}
+
 .state-refresh {
   background: none;
   border: none;
