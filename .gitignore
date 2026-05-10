@@ -36,3 +36,31 @@ __pycache__/
 docs/PROJECT*.md
 docs/PROJECT*.pdf
 docs/PROJECT*.html
+
+# Ralph loop / session artifacts
+Cleverness*
+可维护性*
+
+# Debug scripts
+debug_auth.rs
+
+# Docker (not ready for repo)
+.dockerignore
+Dockerfile
+docker-compose.yml
+deploy.sh
+deploy/
+
+# Private docs
+docs/Gaggle_Brian.pdf
+docs/Gaggle_Space__2026.pdf
+docs/odysseus_resume.html
+
+# Frontend temp files
+frontend/.claude/
+frontend/docs-enhance.js
+frontend/playground.html
+
+# Project status logs
+PROJECT_STATUS*
+PROJECT_STATUS_LOG*
