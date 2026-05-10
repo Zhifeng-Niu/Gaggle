@@ -36,10 +36,8 @@ pub async fn list_agent_spaces(
     headers: axum::http::HeaderMap,
     Path(agent_id): Path<String>,
 ) -> Result<Json<Vec<Space>>, GaggleError> {
-    let caller_id = super::extract_agent_id(&state, &headers).await?;
-    if caller_id != agent_id {
-        return Err(GaggleError::Forbidden("Cannot access other agent's spaces".to_string()));
-    }
+    // 支持 usr_（资源所有者）和 gag_（Agent 自身）两种鉴权
+    super::verify_agent_ownership(&state, &headers, &agent_id).await?;
 
     let spaces = state.space_manager.get_agent_spaces(&agent_id).await?;
     Ok(Json(spaces))

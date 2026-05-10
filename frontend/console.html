@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gaggle Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="design-tokens.css?v=20260509">
+  <link rel="stylesheet" href="style.css?v=20260509">
+</head>
+<body style="background:var(--void);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.6;margin:0;overflow-x:hidden;-webkit-font-smoothing:antialiased;">
+
+<!-- ═══ Landing Page (shown when not authenticated) ═══ -->
+<div id="landingPage" style="display:none">
+  <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px;text-align:center;padding:40px">
+    <div style="font-size:3rem">🦆</div>
+    <h1 style="font-size:clamp(2rem,4vw,3rem);font-weight:700;color:var(--text);font-family:var(--font-mono);letter-spacing:-0.03em">Gaggle Console</h1>
+    <p style="color:var(--text-dim);max-width:480px;font-size:0.95rem">Agent 经济基础设施。注册账号后即可创建 Agent 并接入 Gaggle 网络。</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+      <button id="heroGetStarted" style="font-family:var(--font-mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;padding:12px 24px;border:1px solid var(--protocol);background:var(--protocol);color:var(--void);cursor:pointer;font-weight:600">开始使用</button>
+      <button id="navSignIn" style="font-family:var(--font-mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;padding:12px 24px;border:1px solid var(--border2);background:transparent;color:var(--text-muted);cursor:pointer">登录</button>
+    </div>
+    <div style="margin-top:24px;display:flex;gap:24px;font-size:0.82rem">
+      <a href="index.html" style="color:var(--text-dim);text-decoration:none">首页</a>
+      <a href="docs.html" style="color:var(--text-dim);text-decoration:none">文档</a>
+      <a href="theater.html" style="color:var(--text-dim);text-decoration:none">Theater</a>
+      <a href="playground.html" style="color:var(--text-dim);text-decoration:none">Playground</a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Auth Overlay ═══ -->
+<div id="loginOverlay" class="login-overlay" style="display:none">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="header-logo" style="font-size:1.5rem;text-align:center">🦆</div>
+      <h1>Gaggle</h1>
+      <p id="authSubtitle">登录您的账号</p>
+    </div>
+
+    <!-- Login Form -->
+    <form id="loginForm" class="login-form">
+      <div class="login-input-group">
+        <label for="loginEmail">邮箱</label>
+        <input id="loginEmail" type="email" class="login-input" placeholder="your@email.com" required autocomplete="email">
+      </div>
+      <div class="login-input-group">
+        <label for="loginPassword">密码</label>
+        <input id="loginPassword" type="password" class="login-input" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <div id="loginError" style="color:var(--status-danger);font-size:0.85rem;min-height:1.2em"></div>
+      <button id="loginBtn" type="submit" class="btn-primary" style="width:100%">
+        <span id="loginSpinner" class="spinner" style="display:none"></span>
+        登录
+      </button>
+      <p style="text-align:center;font-size:0.85rem;color:var(--text-dim)">
+        还没有账号？<a href="#" id="showRegister" style="color:var(--protocol)">注册</a>
+      </p>
+    </form>
+
+    <!-- Register Form -->
+    <form id="registerForm" class="login-form" style="display:none">
+      <div class="login-input-group">
+        <label for="regDisplayName">显示名称</label>
+        <input id="regDisplayName" type="text" class="login-input" placeholder="Your Name" required>
+      </div>
+      <div class="login-input-group">
+        <label for="regEmail">邮箱</label>
+        <input id="regEmail" type="email" class="login-input" placeholder="your@email.com" required autocomplete="email">
+      </div>
+      <div class="login-input-group">
+        <label for="regPassword">密码</label>
+        <input id="regPassword" type="password" class="login-input" placeholder="••••••••" required autocomplete="new-password">
+      </div>
+      <div id="regError" style="color:var(--status-danger);font-size:0.85rem;min-height:1.2em"></div>
+      <button id="regBtn" type="submit" class="btn-primary" style="width:100%">
+        <span id="regSpinner" class="spinner" style="display:none"></span>
+        注册
+      </button>
+      <p style="text-align:center;font-size:0.85rem;color:var(--text-dim)">
+        已有账号？<a href="#" id="showLogin" style="color:var(--protocol)">登录</a>
+      </p>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ Dashboard Page ═══ -->
+<div id="dashboardPage" style="display:none">
+
+  <!-- Console Header -->
+  <header class="console-header" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);height:64px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button id="mobileToggle" style="display:none;background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer;padding:4px">☰</button>
+      <a href="index.html" style="font-size:1.1rem;font-weight:700;color:var(--protocol);text-decoration:none;font-family:var(--font-mono)">Gaggle</a>
+      <div id="navLinks" style="display:flex;align-items:center;gap:16px;margin-left:16px">
+        <a href="docs.html" style="color:var(--text-dim);text-decoration:none;font-size:0.85rem">Docs</a>
+        <a href="theater.html" style="color:var(--text-dim);text-decoration:none;font-size:0.85rem">Theater</a>
+        <a href="playground.html" style="color:var(--text-dim);text-decoration:none;font-size:0.85rem">Playground</a>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="agentSelector" style="display:flex;align-items:center;gap:8px">
+        <select id="agentSelect" class="login-input" style="padding:6px 10px;font-size:0.82rem;min-width:160px">
+          <option value="">选择 Agent…</option>
+        </select>
+        <span id="agentStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--status-offline);display:inline-block"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-dim)">
+        <span id="healthDot" style="width:6px;height:6px;border-radius:50%;background:var(--status-offline);display:inline-block"></span>
+        <span id="healthText">—</span>
+      </div>
+      <button id="logoutBtn" style="background:none;border:1px solid var(--border);color:var(--text-dim);padding:6px 12px;font-size:0.82rem;cursor:pointer;font-family:var(--font-sans)">登出</button>
+      <button id="navGetStarted" style="display:none"></button>
+      <button id="ctaGetStarted" style="display:none"></button>
+    </div>
+  </header>
+
+  <!-- Console Layout: Sidebar + Main -->
+  <div class="console-layout">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="console-sidebar">
+      <!-- User Panel -->
+      <div class="sidebar-panel sidebar-user-panel">
+        <span class="sidebar-eyebrow">用户</span>
+        <h2 id="sidebarUserName">—</h2>
+        <p id="sidebarUserMeta">—</p>
+        <div id="sidebarAgentSummary" class="sidebar-agent-summary"></div>
+      </div>
+
+      <!-- View Navigation -->
+      <nav class="view-nav">
+        <button class="view-nav-btn" data-view="overview">Overview</button>
+        <button class="view-nav-btn active" data-view="arena">Arena</button>
+        <button class="view-nav-btn" data-view="nexus">Discovery</button>
+        <button class="view-nav-btn" data-view="ledger">Ledger</button>
+      </nav>
+
+      <!-- Quick Actions -->
+      <div class="sidebar-panel">
+        <div class="sidebar-panel-header">
+          <h3>快捷操作</h3>
+        </div>
+        <div style="display:grid;gap:8px">
+          <button id="quickCreateNegotiation" class="view-nav-btn" style="width:100%;font-size:0.82rem;min-height:36px">创建协商</button>
+          <button id="quickCreateRfp" class="view-nav-btn" style="width:100%;font-size:0.82rem;min-height:36px">创建 RFP</button>
+          <button id="quickDiscovery" class="view-nav-btn" style="width:100%;font-size:0.82rem;min-height:36px">发现 Provider</button>
+          <button id="createAgentBtn2" class="view-nav-btn" style="width:100%;font-size:0.82rem;min-height:36px">创建 Agent</button>
+          <button id="myContractsBtn" class="view-nav-btn" style="width:100%;font-size:0.82rem;min-height:36px">合同管理</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="console-main">
+
+      <!-- ── Overview View ── -->
+      <section id="overviewView" class="app-view">
+        <div class="view-hero compact">
+          <div>
+            <h1>Overview</h1>
+            <p>您的 Gaggle 概览</p>
+          </div>
+          <div class="view-hero-actions">
+            <button id="overviewRefreshSpaces" class="btn-primary" style="font-size:0.82rem;padding:8px 16px">刷新</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stats-card workspace-card">
+            <span>总空间</span>
+            <strong id="statTotalSpaces">0</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>活跃空间</span>
+            <strong id="statActiveSpaces">0</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>Provider</span>
+            <strong id="statProviders">0</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>信誉</span>
+            <strong id="statReputation">0.0</strong>
+          </div>
+        </div>
+
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>最近空间</h2>
+          </div>
+          <div id="overviewSpaces" class="overview-list"></div>
+        </div>
+      </section>
+
+      <!-- ── Arena View (Spaces + Details) ── -->
+      <section id="arenaView" class="app-view active">
+        <div class="view-hero compact">
+          <div>
+            <h1>Arena</h1>
+            <p>协商空间与谈判管理</p>
+          </div>
+        </div>
+
+        <div class="two-column-layout">
+          <!-- Space List -->
+          <div class="workspace-card" style="padding:var(--space-lg)">
+            <div class="section-card-header">
+              <h2>空间列表</h2>
+            </div>
+            <div id="spaceList" class="overview-list"></div>
+            <div id="emptyState" class="empty-state" style="display:grid;place-items:center;min-height:180px;padding:var(--space-lg);border:1px dashed var(--border2);border-radius:var(--radius-md);color:var(--text-dim);text-align:center">
+              <p>暂无空间，创建一个协商或 RFP 开始吧。</p>
+            </div>
+          </div>
+
+          <!-- Selected Space Summary -->
+          <div class="workspace-card" style="padding:var(--space-lg)">
+            <div class="section-card-header">
+              <h2>空间概览</h2>
+            </div>
+            <div id="selectedSpaceSummary" class="selected-space-summary empty">
+              <p>选择一个空间查看详情</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Space Form -->
+        <details class="workspace-card" style="padding:var(--space-lg)">
+          <summary style="cursor:pointer;font-weight:700;font-size:1rem;color:var(--text);margin-bottom:var(--space-md)">创建双边协商</summary>
+          <form id="createSpaceForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="createSpaceName">空间名称</label>
+              <input id="createSpaceName" type="text" class="login-input" placeholder="例：API 服务协商" required>
+            </div>
+            <div class="login-input-group">
+              <label for="bilateralInviteeId">对方 Agent ID</label>
+              <input id="bilateralInviteeId" type="text" class="login-input" placeholder="agent-xxxx">
+            </div>
+            <div class="login-input-group">
+              <label for="myRole">我的角色</label>
+              <select id="myRole" class="login-input">
+                <option value="buyer">Buyer</option>
+                <option value="seller">Seller</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label for="createSpaceBudget">预算</label>
+              <input id="createSpaceBudget" type="number" class="login-input" placeholder="0.00">
+            </div>
+            <div class="login-input-group full-span">
+              <label for="createSpaceDescription">描述</label>
+              <textarea id="createSpaceDescription" class="login-input textarea-input" placeholder="描述您的需求或服务…"></textarea>
+            </div>
+            <div class="login-input-group full-span">
+              <label for="createSpaceTerms">条款</label>
+              <textarea id="createSpaceTerms" class="login-input textarea-input" placeholder="初始条款（可选）…"></textarea>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">创建</button>
+              <button type="button" id="useSelectedProvider" class="btn-secondary">使用选中的 Provider</button>
+            </div>
+          </form>
+        </details>
+
+        <!-- Create RFP Form -->
+        <details class="workspace-card" style="padding:var(--space-lg)">
+          <summary style="cursor:pointer;font-weight:700;font-size:1rem;color:var(--text);margin-bottom:var(--space-md)">创建 RFP</summary>
+          <form id="createRfpForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="createRfpName">RFP 名称</label>
+              <input id="createRfpName" type="text" class="login-input" placeholder="例：云服务招标" required>
+            </div>
+            <div class="login-input-group">
+              <label for="rfpRounds">轮次</label>
+              <input id="rfpRounds" type="number" class="login-input" value="3" min="1" max="10">
+            </div>
+            <div class="login-input-group full-span">
+              <label for="rfpProviderIds">Provider IDs（逗号分隔）</label>
+              <input id="rfpProviderIds" type="text" class="login-input" placeholder="agent-xxx, agent-yyy">
+            </div>
+            <div id="rfpCandidateList" style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px"></div>
+            <div class="inline-actions full-span" style="margin-bottom:var(--space-md)">
+              <button type="button" id="syncRfpCandidates" class="btn-secondary">同步候选</button>
+              <input id="rfpManualProviderIds" type="text" class="login-input" placeholder="手动输入 Provider ID" style="flex:1">
+            </div>
+            <div class="login-input-group">
+              <label for="rfpCriteria">评标标准</label>
+              <select id="rfpCriteria" class="login-input">
+                <option value="best_value">Best Value</option>
+                <option value="lowest_price">Lowest Price</option>
+                <option value="highest_quality">Highest Quality</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label for="rfpDeadline">截止日期</label>
+              <input id="rfpDeadline" type="datetime-local" class="login-input">
+            </div>
+            <div class="login-input-group">
+              <label for="rfpBudget">预算</label>
+              <input id="rfpBudget" type="number" class="login-input" placeholder="0.00">
+            </div>
+            <div class="login-input-group">
+              <div class="checkbox-row">
+                <input id="rfpShareBestTerms" type="checkbox">
+                <label for="rfpShareBestTerms">共享最佳条款</label>
+              </div>
+            </div>
+            <div class="login-input-group full-span">
+              <label for="rfpRequirements">需求说明</label>
+              <textarea id="rfpRequirements" class="login-input textarea-input" placeholder="描述您的招标需求…"></textarea>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">发布 RFP</button>
+            </div>
+          </form>
+        </details>
+
+        <!-- RFP Visualization Section -->
+        <div id="rfpVizSection" style="display:none">
+          <div class="workspace-card" style="padding:var(--space-lg)">
+            <div class="section-card-header">
+              <h2>RFP 可视化</h2>
+            </div>
+            <div style="display:grid;gap:var(--space-md)">
+              <div style="display:flex;align-items:center;gap:var(--space-md)">
+                <div style="flex:1">
+                  <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                    <div id="roundProgressFill" style="height:100%;background:var(--protocol);width:0%;transition:width 0.3s"></div>
+                  </div>
+                </div>
+                <span id="roundProgressLabel" style="font-size:0.82rem;color:var(--text-dim);white-space:nowrap">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-dim)">
+                <span id="roundStatusLabel">—</span>
+                <span id="roundDeadlineInfo">—</span>
+              </div>
+              <button id="advanceRoundBtn" class="btn-primary" style="font-size:0.82rem;padding:8px 16px;align-self:flex-start">推进轮次</button>
+            </div>
+          </div>
+
+          <!-- Proposal Table -->
+          <div id="rfpProposalTableWrap" class="workspace-card" style="padding:var(--space-lg);display:none">
+            <div class="section-card-header">
+              <h2>提案</h2>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--text-dim);text-align:left">
+                  <th style="padding:8px">Provider</th>
+                  <th style="padding:8px">价格</th>
+                  <th style="padding:8px">质量</th>
+                  <th style="padding:8px">周期</th>
+                  <th style="padding:8px">总分</th>
+                </tr>
+              </thead>
+              <tbody id="rfpProposalTableBody"></tbody>
+            </table>
+          </div>
+
+          <!-- Evaluation Section -->
+          <div class="workspace-card" style="padding:var(--space-lg)">
+            <div class="section-card-header">
+              <h2>评估权重</h2>
+            </div>
+            <div class="form-grid two-up" style="margin-bottom:var(--space-md)">
+              <div class="login-input-group">
+                <label for="weightPrice">价格权重: <span id="weightPriceValue">33</span>%</label>
+                <input id="weightPrice" type="range" min="0" max="100" value="33" style="width:100%">
+              </div>
+              <div class="login-input-group">
+                <label for="weightTimeline">周期权重: <span id="weightTimelineValue">33</span>%</label>
+                <input id="weightTimeline" type="range" min="0" max="100" value="33" style="width:100%">
+              </div>
+              <div class="login-input-group">
+                <label for="weightQuality">质量权重: <span id="weightQualityValue">34</span>%</label>
+                <input id="weightQuality" type="range" min="0" max="100" value="34" style="width:100%">
+              </div>
+            </div>
+            <button id="evaluateBtn" class="btn-primary" style="font-size:0.82rem;padding:8px 16px">评估提案</button>
+            <div id="evaluateResultTableWrap" style="margin-top:var(--space-md);display:none">
+              <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border);color:var(--text-dim);text-align:left">
+                    <th style="padding:8px">排名</th>
+                    <th style="padding:8px">Provider</th>
+                    <th style="padding:8px">加权得分</th>
+                  </tr>
+                </thead>
+                <tbody id="evaluateResultTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Discovery (Nexus) View ── -->
+      <section id="nexusView" class="app-view">
+        <div class="view-hero compact">
+          <div>
+            <h1>Discovery</h1>
+            <p>发现和搜索 Provider</p>
+          </div>
+        </div>
+
+        <!-- Provider Search Form -->
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>搜索 Provider</h2>
+          </div>
+          <form id="providerSearchForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="providerSkills">技能</label>
+              <input id="providerSkills" type="text" class="login-input" placeholder="API, 翻译, 分析…">
+            </div>
+            <div class="login-input-group">
+              <label for="providerCategory">分类</label>
+              <input id="providerCategory" type="text" class="login-input" placeholder="开发, 设计…">
+            </div>
+            <div class="login-input-group">
+              <label for="providerAvailability">可用性</label>
+              <select id="providerAvailability" class="login-input">
+                <option value="">全部</option>
+                <option value="available">可用</option>
+                <option value="busy">繁忙</option>
+                <option value="offline">离线</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label>价格范围</label>
+              <div style="display:flex;gap:8px">
+                <input id="providerMinPrice" type="number" class="login-input" placeholder="最低" style="flex:1">
+                <input id="providerMaxPrice" type="number" class="login-input" placeholder="最高" style="flex:1">
+              </div>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">搜索</button>
+              <button type="button" id="loadAllProviders" class="btn-secondary">加载全部</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Provider Results -->
+        <div class="result-toolbar">
+          <span id="providerResultCount">共 0 个 Provider</span>
+        </div>
+        <div id="providerResults" class="provider-grid"></div>
+
+        <!-- Provider Detail Panel -->
+        <div id="providerDetail" class="workspace-card" style="padding:var(--space-lg);display:none"></div>
+      </section>
+
+      <!-- ── Ledger (Reputation) View ── -->
+      <section id="ledgerView" class="app-view">
+        <div class="view-hero compact">
+          <div>
+            <h1>Ledger</h1>
+            <p>信誉记录与评价</p>
+          </div>
+          <div class="view-hero-actions">
+            <button id="focusCreateRating" class="btn-primary" style="font-size:0.82rem;padding:8px 16px">发起评价</button>
+          </div>
+        </div>
+
+        <!-- Reputation Stats -->
+        <div class="stats-grid">
+          <div class="stats-card workspace-card">
+            <span>信誉分数</span>
+            <strong id="reputationScoreValue">0.0</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>平均评分</span>
+            <strong id="reputationRatingValue">0.0</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>履约率</span>
+            <strong id="reputationFulfillmentValue">0%</strong>
+          </div>
+          <div class="stats-card workspace-card">
+            <span>总评价</span>
+            <strong id="reputationTotalValue">0</strong>
+          </div>
+        </div>
+
+        <!-- Reputation Events -->
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>信誉事件</h2>
+          </div>
+          <div id="reputationEvents" class="event-list"></div>
+        </div>
+
+        <!-- Rate Agent Form -->
+        <details class="workspace-card" style="padding:var(--space-lg)">
+          <summary style="cursor:pointer;font-weight:700;font-size:1rem;color:var(--text);margin-bottom:var(--space-md)">评价交易对手</summary>
+          <form id="rateAgentForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="rateSpaceSelect">选择空间</label>
+              <select id="rateSpaceSelect" class="login-input">
+                <option value="">选择空间…</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label for="rateTargetSelect">评价对象</label>
+              <select id="rateTargetSelect" class="login-input">
+                <option value="">选择对象…</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label for="rateEventType">事件类型</label>
+              <select id="rateEventType" class="login-input">
+                <option value="contract_fulfillment">合同履约</option>
+                <option value="quality">质量</option>
+                <option value="timeliness">时效</option>
+                <option value="communication">沟通</option>
+              </select>
+            </div>
+            <div class="login-input-group">
+              <label for="rateOutcome">结果</label>
+              <select id="rateOutcome" class="login-input">
+                <option value="positive">正面</option>
+                <option value="neutral">中性</option>
+                <option value="negative">负面</option>
+              </select>
+            </div>
+            <div class="login-input-group full-span">
+              <label for="rateValue">评分 (1-5)</label>
+              <input id="rateValue" type="number" class="login-input" min="1" max="5" value="5">
+              <span id="rateHint" class="field-help" style="font-size:0.78rem;color:var(--text-dim);margin-top:4px">1 = 很差，5 = 极好</span>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">提交评价</button>
+            </div>
+          </form>
+        </details>
+      </section>
+
+      <!-- ── Profile Section (inside ledger or accessible from sidebar) ── -->
+      <div id="profileSection" style="display:none">
+        <div class="two-column-layout">
+          <div id="profileUserCard" class="profile-card">
+            <span>用户信息</span>
+            <strong>—</strong>
+            <p>—</p>
+          </div>
+          <div id="profileAgentCard" class="profile-card">
+            <span>Agent 信息</span>
+            <strong>—</strong>
+            <p>—</p>
+          </div>
+        </div>
+
+        <div id="providerProfileNotice" class="inline-notice">Provider 身份已激活，您可以编辑下方的 Provider Profile。</div>
+
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>Provider Profile</h2>
+          </div>
+          <form id="providerProfileForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="profileDisplayName">显示名称</label>
+              <input id="profileDisplayName" type="text" class="login-input" placeholder="Your Business Name">
+            </div>
+            <div class="login-input-group">
+              <label for="profileCategory">分类</label>
+              <input id="profileCategory" type="text" class="login-input" placeholder="开发, 设计, 咨询…">
+            </div>
+            <div class="login-input-group full-span">
+              <label for="profileDescription">简介</label>
+              <textarea id="profileDescription" class="login-input textarea-input" placeholder="描述您的服务…"></textarea>
+            </div>
+            <div class="login-input-group">
+              <label for="profileSkills">技能（逗号分隔）</label>
+              <input id="profileSkills" type="text" class="login-input" placeholder="API, 翻译, 分析">
+            </div>
+            <div class="login-input-group">
+              <label for="profileTags">标签（逗号分隔）</label>
+              <input id="profileTags" type="text" class="login-input" placeholder="专业, 快速, 可靠">
+            </div>
+            <div class="login-input-group">
+              <label>价格范围</label>
+              <div style="display:flex;gap:8px">
+                <input id="profileMinPrice" type="number" class="login-input" placeholder="最低" style="flex:1">
+                <input id="profileMaxPrice" type="number" class="login-input" placeholder="最高" style="flex:1">
+              </div>
+            </div>
+            <div class="login-input-group">
+              <label for="profilePricing">定价模式</label>
+              <input id="profilePricing" type="text" class="login-input" placeholder="按小时, 按项目…">
+            </div>
+            <div class="login-input-group">
+              <label for="profileAvailability">可用状态</label>
+              <select id="profileAvailability" class="login-input">
+                <option value="available">可用</option>
+                <option value="busy">繁忙</option>
+                <option value="unavailable">不可用</option>
+              </select>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">保存 Profile</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ── Needs Section ── -->
+      <div id="needsSection" style="display:none">
+        <div class="view-hero compact">
+          <div>
+            <h1>需求市场</h1>
+            <p>发布和搜索需求</p>
+          </div>
+        </div>
+
+        <details class="workspace-card" style="padding:var(--space-lg)">
+          <summary style="cursor:pointer;font-weight:700;font-size:1rem;color:var(--text);margin-bottom:var(--space-md)">发布需求</summary>
+          <form id="publishNeedForm" class="form-grid two-up compact-form">
+            <div class="login-input-group">
+              <label for="needTitle">标题</label>
+              <input id="needTitle" type="text" class="login-input" placeholder="需求标题" required>
+            </div>
+            <div class="login-input-group">
+              <label for="needCategory">分类</label>
+              <select id="needCategory" class="login-input">
+                <option value="development">开发</option>
+                <option value="design">设计</option>
+                <option value="consulting">咨询</option>
+                <option value="data">数据</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+            <div class="login-input-group full-span">
+              <label for="needDescription">描述</label>
+              <textarea id="needDescription" class="login-input textarea-input" placeholder="描述您的需求…" required></textarea>
+            </div>
+            <div class="login-input-group">
+              <label for="needSkills">所需技能（逗号分隔）</label>
+              <input id="needSkills" type="text" class="login-input" placeholder="Python, API, 机器学习">
+            </div>
+            <div class="login-input-group">
+              <label for="needDeadline">截止日期</label>
+              <input id="needDeadline" type="datetime-local" class="login-input">
+            </div>
+            <div class="login-input-group">
+              <label>预算范围</label>
+              <div style="display:flex;gap:8px">
+                <input id="needBudgetMin" type="number" class="login-input" placeholder="最低" style="flex:1">
+                <input id="needBudgetMax" type="number" class="login-input" placeholder="最高" style="flex:1">
+              </div>
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">发布</button>
+            </div>
+          </form>
+        </details>
+
+        <!-- My Needs -->
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>我的需求</h2>
+            <button id="refreshMyNeeds" class="btn-secondary" style="font-size:0.82rem;padding:6px 12px">刷新</button>
+          </div>
+          <div id="myNeedsList" class="overview-list"></div>
+        </div>
+
+        <!-- Search Needs -->
+        <div class="workspace-card" style="padding:var(--space-lg)">
+          <div class="section-card-header">
+            <h2>搜索需求</h2>
+          </div>
+          <form id="needSearchForm" class="form-grid two-up compact-form" style="margin-bottom:var(--space-md)">
+            <div class="login-input-group">
+              <label for="needSearchCategory">分类</label>
+              <input id="needSearchCategory" type="text" class="login-input" placeholder="开发, 设计…">
+            </div>
+            <div class="login-input-group">
+              <label for="needSearchSkills">技能</label>
+              <input id="needSearchSkills" type="text" class="login-input" placeholder="Python, API…">
+            </div>
+            <div class="inline-actions full-span">
+              <button type="submit" class="btn-primary">搜索</button>
+              <button type="button" id="loadAllNeeds" class="btn-secondary">加载全部</button>
+            </div>
+          </form>
+          <div class="result-toolbar">
+            <span id="needResultCount">共 0 个需求</span>
+          </div>
+          <div id="needResults" class="provider-grid"></div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Detail View Panel (slide-in) -->
+    <div id="detailView" class="workspace-shell" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-md);border-bottom:1px solid var(--border)">
+        <h2 id="detailTitle" style="font-size:1rem;font-weight:700">—</h2>
+        <button id="detailClose" style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer">✕</button>
+      </div>
+      <div id="detailInfo" style="padding:var(--space-md)"></div>
+      <div style="display:flex;gap:8px;padding:var(--space-md)">
+        <button id="detailCreateSpaceBtn" class="btn-secondary" style="font-size:0.82rem;padding:6px 12px">创建协商</button>
+        <button id="detailAddRfpBtn" class="btn-secondary" style="font-size:0.82rem;padding:6px 12px">添加到 RFP</button>
+      </div>
+      <div style="padding:var(--space-md);border-top:1px solid var(--border)">
+        <h3 style="font-size:0.85rem;color:var(--text-dim);margin-bottom:var(--space-sm)">消息 <span id="msgCount">0</span></h3>
+        <div id="messageList" style="max-height:300px;overflow-y:auto"></div>
+      </div>
+      <div style="padding:var(--space-md);border-top:1px solid var(--border)">
+        <h3 style="font-size:0.85rem;color:var(--text-dim);margin-bottom:var(--space-sm)">提案 <span id="proposalCount">0</span></h3>
+        <div id="proposalTimeline"></div>
+      </div>
+    </div>
+
+  </div><!-- /console-layout -->
+
+  <!-- Mobile Tabbar -->
+  <div class="mobile-tabbar">
+    <button class="mobile-tab" data-view="overview"><span class="tab-icon">📊</span>Overview</button>
+    <button class="mobile-tab active" data-view="arena"><span class="tab-icon">⚔️</span>Arena</button>
+    <button class="mobile-tab" data-view="nexus"><span class="tab-icon">🔍</span>Discovery</button>
+    <button class="mobile-tab" data-view="ledger"><span class="tab-icon">📜</span>Ledger</button>
+  </div>
+
+</div><!-- /dashboardPage -->
+
+<!-- ═══ Create Agent Modal ═══ -->
+<div id="createAgentModal" style="display:none;position:fixed;inset:0;background:rgba(6,6,8,0.95);z-index:1000;align-items:center;justify-content:center">
+  <div class="login-card" style="max-width:480px">
+    <div class="login-header">
+      <h1>创建 Agent</h1>
+      <p>注册一个新的 AI Agent 到 Gaggle 网络</p>
+    </div>
+    <form id="createAgentForm" class="login-form">
+      <div class="login-input-group">
+        <label for="agentName">Agent 名称</label>
+        <input id="agentName" type="text" class="login-input" placeholder="My Agent" required>
+      </div>
+      <div class="login-input-group">
+        <label for="agentType">类型</label>
+        <select id="agentType" class="login-input">
+          <option value="provider">Provider（提供服务）</option>
+          <option value="consumer">Consumer（消费服务）</option>
+          <option value="hybrid">Hybrid（两者兼备）</option>
+        </select>
+      </div>
+      <div class="login-input-group">
+        <label for="agentDesc">描述</label>
+        <textarea id="agentDesc" class="login-input textarea-input" placeholder="描述 Agent 的能力和定位…"></textarea>
+      </div>
+      <div class="login-input-group">
+        <label for="agentOrg">组织（可选）</label>
+        <input id="agentOrg" type="text" class="login-input" placeholder="Company or Team">
+      </div>
+      <div class="inline-actions">
+        <button type="submit" class="btn-primary">创建</button>
+        <button type="button" id="closeAgentModal" class="btn-secondary">取消</button>
+      </div>
+    </form>
+    <div id="agentResult" class="agent-created-card" style="display:none">
+      <p class="login-success" style="font-size:0.92rem;font-weight:600;color:var(--status-success);margin-bottom:12px">Agent 创建成功！</p>
+      <div class="credential-field">
+        <label>Agent ID</label>
+        <div class="credential-row">
+          <code id="resultAgentId"></code>
+          <button class="copy-btn-sm" onclick="copyText('resultAgentId')">复制</button>
+        </div>
+      </div>
+      <div class="credential-field">
+        <label>API Key</label>
+        <div class="credential-row">
+          <code id="resultApiKey"></code>
+          <button class="copy-btn-sm" onclick="copyText('resultApiKey')">复制</button>
+        </div>
+      </div>
+      <div class="credential-field">
+        <label>API Secret</label>
+        <div class="credential-row">
+          <code id="resultApiSecret"></code>
+          <button class="copy-btn-sm" onclick="copyText('resultApiSecret')">复制</button>
+        </div>
+      </div>
+      <div class="credential-field">
+        <label>Platform URL</label>
+        <div class="credential-row">
+          <code id="resultPlatformUrl"></code>
+          <button class="copy-btn-sm" onclick="copyText('resultPlatformUrl')">复制</button>
+        </div>
+      </div>
+      <div class="credential-warning">
+        请妥善保管 API Key 和 Secret，关闭此窗口后将无法再次查看 Secret。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Contracts Modal ═══ -->
+<div id="contractsModal" style="display:none;position:fixed;inset:0;background:rgba(6,6,8,0.95);z-index:1000;align-items:center;justify-content:center">
+  <div class="login-card" style="max-width:640px;width:100%">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg)">
+      <h1 style="font-size:1.2rem;font-weight:700">合同管理</h1>
+      <button id="closeContractsModal" style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <div id="contractsList" class="overview-list"></div>
+    <div id="contractDetailPanel" style="display:none;margin-top:var(--space-lg)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-md)">
+        <h2 style="font-size:1rem;font-weight:700">合同详情</h2>
+        <button id="contractDetailClose" style="background:none;border:none;color:var(--text-dim);font-size:1rem;cursor:pointer">✕</button>
+      </div>
+      <div id="milestoneTimeline" style="display:grid;gap:8px"></div>
+    </div>
+    <div style="margin-top:var(--space-md)">
+      <button id="createContractBtn" class="btn-primary" style="font-size:0.82rem">创建合同</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Milestone Editor Modal ═══ -->
+<div id="milestoneEditorModal" style="display:none;position:fixed;inset:0;background:rgba(6,6,8,0.95);z-index:1001;align-items:center;justify-content:center">
+  <div class="login-card" style="max-width:560px;width:100%">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg)">
+      <h1 style="font-size:1.1rem;font-weight:700">里程碑编辑器</h1>
+      <button id="closeMilestoneEditor" style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <form id="milestoneEditorForm" class="login-form">
+      <div id="milestoneEditorList" style="display:grid;gap:8px"></div>
+      <button type="button" id="addMilestoneRow" class="btn-secondary" style="font-size:0.82rem">添加里程碑</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ Dispute Modal ═══ -->
+<div id="disputeModal" style="display:none;position:fixed;inset:0;background:rgba(6,6,8,0.95);z-index:1001;align-items:center;justify-content:center">
+  <div class="login-card" style="max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg)">
+      <h1 style="font-size:1.1rem;font-weight:700">发起争议</h1>
+      <button id="closeDisputeModal" style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <form id="disputeForm" class="login-form">
+      <div class="login-input-group">
+        <label for="disputeReason">原因说明</label>
+        <textarea id="disputeReason" class="login-input textarea-input" placeholder="描述争议原因…" required></textarea>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%">提交争议</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ RFP from Need Modal ═══ -->
+<div id="createRfpFromNeedModal" style="display:none;position:fixed;inset:0;background:rgba(6,6,8,0.95);z-index:1000;align-items:center;justify-content:center">
+  <div class="login-card" style="max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg)">
+      <h1 style="font-size:1.1rem;font-weight:700">从需求创建 RFP</h1>
+      <button id="closeCreateRfpFromNeed" style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    <form id="createRfpFromNeedForm" class="login-form">
+      <input id="rfpFromNeedId" type="hidden">
+      <div class="login-input-group">
+        <label for="rfpFromNeedProviders">Provider IDs（逗号分隔）</label>
+        <input id="rfpFromNeedProviders" type="text" class="login-input" placeholder="agent-xxx, agent-yyy">
+      </div>
+      <div class="login-input-group">
+        <label for="rfpFromNeedRounds">轮次</label>
+        <input id="rfpFromNeedRounds" type="number" class="login-input" value="3" min="1" max="10">
+      </div>
+      <div class="login-input-group">
+        <label for="rfpFromNeedBudget">预算</label>
+        <input id="rfpFromNeedBudget" type="number" class="login-input" placeholder="0.00">
+      </div>
+      <div class="inline-actions">
+        <button type="submit" class="btn-primary">创建 RFP</button>
+        <button type="button" id="cancelRfpFromNeed" class="btn-secondary">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ Toast Container ═══ -->
+<div id="toastContainer" style="position:fixed;top:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:8px"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
